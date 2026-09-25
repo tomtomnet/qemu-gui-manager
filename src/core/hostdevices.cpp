@@ -303,4 +303,20 @@ qint64 memlockLimit()
     return qint64(limit.rlim_cur);
 }
 
+
+QList<UsbDevice> usbWithoutAccess(const QList<std::pair<quint16, quint16>> &ids,
+                                  const QString &sysfs, const QString &dev)
+{
+    QList<UsbDevice> out;
+
+    for (const UsbDevice &d : usbDevices(sysfs)) {
+        /* /dev/bus/usb/001/004 */
+        const QString node = dev + d.devNode().mid(4);
+        if (!d.isHub && ids.contains({d.vendorId, d.productId}) &&
+            ::access(QFile::encodeName(node).constData(), R_OK | W_OK) != 0) {
+            out << d;
+        }
+    }
+    return out;
+}
 }

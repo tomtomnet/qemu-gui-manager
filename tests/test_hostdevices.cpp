@@ -7,6 +7,8 @@
 
 #include "core/hostdevices.h"
 
+#include <unistd.h>
+
 class TestHostDevices : public QObject
 {
     Q_OBJECT
@@ -165,6 +167,27 @@ private slots:
             HostDevices::pciProblems(find("0000:03:00.0"), 16384, sys);
         QCOMPARE(problems.size(), 1);
         QVERIFY(problems[0].contains("17.0 GiB"));
+    }
+
+    void usbWithoutAccess()
+    {
+        if (getuid() == 0) {
+            QSKIP("root can open anything");
+        }
+        const QString dev = tmp.filePath("dev");
+        QDir().mkpath(dev + "/bus/usb/001");
+        for (const char *node : {"002", "003"}) {
+            QFile f(dev + "/bus/usb/001/" + node);
+            QVERIFY(f.open(QIODevice::WriteOnly));
+        }
+        /* 1-2, 046d:c52b too, on 001/003: this user cannot open it */
+        QFile::setPermissions(dev + "/bus/usb/001/003", QFileDevice::Permissions());
+
+        const QList<UsbDevice> list =
+            HostDevices::usbWithoutAccess({{0x046d, 0xc52b}}, sys, dev);
+        QCOMPARE(list.size(), 1);
+        QCOMPARE(list[0].devNode(), "/dev/bus/usb/001/003");
+        QVERIFY(HostDevices::usbWithoutAccess({{0x1234, 0x5678}}, sys, dev).isEmpty());
     }
 
     void usbDevices()

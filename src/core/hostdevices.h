@@ -5,6 +5,8 @@
 #include <QString>
 #include <QStringList>
 
+#include <utility>
+
 /*
  * The host's PCI and USB devices, from sysfs, named from the hwdata
  * pci.ids and usb.ids.  @sysfs is "/sys" but for tests.
@@ -60,5 +62,12 @@ QStringList pciProblems(const PciDevice &dev, qint64 guestMiB,
                         const QString &sysfs = "/sys");
 /* RLIMIT_MEMLOCK of this process in bytes, -1 for unlimited */
 qint64 memlockLimit();
+/*
+ * The plugged in devices matching @ids (vendor, product) whose node this
+ * user cannot open, as QEMU must to pass them through.  @dev is "/dev" but
+ * for tests.
+ */
+QList<UsbDevice> usbWithoutAccess(const QList<std::pair<quint16, quint16>> &ids,
+                                  const QString &sysfs = "/sys", const QString &dev = "/dev");
 
 }
