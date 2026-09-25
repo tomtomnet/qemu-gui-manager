@@ -622,7 +622,8 @@ DisplayPage::DisplayPage(QWidget *parent)
     : SettingsPage(parent), m_custom(new Banner(Banner::Information)), m_kind(new QComboBox),
       m_device(new QComboBox),
       m_nativeContext(new QCheckBox(tr("DRM &native context"))),
-      m_venus(new QCheckBox(tr("&Vulkan through Venus"))), m_hostmem(new QSpinBox),
+      m_venus(new QCheckBox(tr("&Vulkan through Venus"))),
+      m_venusUnused(new Banner(Banner::Warning)), m_hostmem(new QSpinBox),
       m_window(new QComboBox)
 {
     auto *layout = new QVBoxLayout(this);
@@ -630,6 +631,8 @@ DisplayPage::DisplayPage(QWidget *parent)
 
     m_kind->setObjectName("graphics");
     m_device->setObjectName("gpuDevice");
+    /* its cards change with the kind: it gets as wide as they need, then */
+    m_device->setSizeAdjustPolicy(QComboBox::AdjustToContents);
     m_nativeContext->setObjectName("nativeContext");
     m_venus->setObjectName("venus");
     m_hostmem->setObjectName("hostmem");
@@ -656,6 +659,16 @@ DisplayPage::DisplayPage(QWidget *parent)
     form->addRow(QString(), Widgets::hint(
         tr("Vulkan in the guest through the Vulkan driver of this computer; it needs a "
            "virglrenderer built with Venus.")));
+    /* both on: native context does Vulkan too */
+    m_venusUnused->setObjectName("venusUnused");
+    m_venusUnused->setText(tr("Venus goes unused with DRM native context: the guest's own GPU "
+                              "driver does Vulkan as well."));
+    m_venusUnused->button()->setText(tr("Turn Venus &Off"));
+    m_venusUnused->button()->show();
+    m_venusUnused->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    connect(m_venusUnused->button(), &QPushButton::clicked, this,
+            [this]() { m_venus->setChecked(false); });
+    form->addRow(QString(), m_venusUnused);
     form->addRow(tr("GPU m&emory window:"), m_hostmem);
     form->addRow(QString(), Widgets::hint(
         tr("The host memory the guest maps its GPU buffers into (hostmem, with blob=on).")));
@@ -727,6 +740,7 @@ void DisplayPage::update()
     m_nativeContext->setEnabled(accelerated);
     m_venus->setEnabled(accelerated);
     m_hostmem->setEnabled(accelerated && (m_nativeContext->isChecked() || m_venus->isChecked()));
+    m_venusUnused->setVisible(accelerated && m_nativeContext->isChecked() && m_venus->isChecked());
 }
 
 void DisplayPage::load(const ArgsFile &args)

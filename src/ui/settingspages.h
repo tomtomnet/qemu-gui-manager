@@ -166,6 +166,7 @@ private:
     QComboBox *m_device;
     QCheckBox *m_nativeContext;
     QCheckBox *m_venus;
+    Banner *m_venusUnused;
     QSpinBox *m_hostmem;
     QComboBox *m_window;
 
