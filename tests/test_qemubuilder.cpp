@@ -238,6 +238,20 @@ private slots:
         QCOMPARE(read(QemuBuilder::buildDir(src) + "/virgl-libdir"), lib);
         QVERIFY(read(QemuBuilder::buildDir(src) + "/configure-args")
                     .endsWith("--extra-ldflags=-Wl,-rpath," + lib));
+
+        /* again, nothing new: no patching, configuring nor compiling */
+        QSignalSpy again(&b, &QemuBuilder::output);
+        QCOMPARE(build(b, o), "");
+        const QString log2 = this->log(again);
+        QVERIFY2(log2.contains("virglrenderer 1.3.0, patched already"), qPrintable(log2));
+        QVERIFY2(log2.contains("Configured already"), qPrintable(log2));
+        QVERIFY2(!log2.contains("Compiling C object"), qPrintable(log2));
+
+        /* other options: configured afresh */
+        o.virgl.venus = !o.virgl.venus;
+        QSignalSpy other(&b, &QemuBuilder::output);
+        QCOMPARE(build(b, o), "");
+        QVERIFY(!this->log(other).contains("Configured already"));
     }
 
     /* A patch that applies nowhere: main without it, and without its renderer */

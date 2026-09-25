@@ -17,11 +17,17 @@ static const char kStamp[] = "/qgm-configure-args";
 /*
  * sh -c SCRIPT sh DIR REF PATCH...: checks out REF, or else the newest of
  * main and the last releases that all the patches apply to, then applies
- * them; if none takes them, main without them
+ * them; if none takes them, main without them.  ../patched records the
+ * commit and the patches, to leave the source alone when they are those
+ * of the last build: rewriting the patched files makes ninja rebuild.
  */
 static const char kApplyPatches[] = R"sh(cd "$1" || exit 1
 want=$2
 shift 2
+stamp=../patched
+hashes=$(cat "$@" </dev/null | sha256sum | cut -d' ' -f1)
+tmp=$(mktemp -d) || exit 1
+trap 'rm -rf "$tmp"' EXIT
 if [ -n "$want" ]; then
     refs=$want
 else
@@ -31,15 +37,24 @@ for ref in $refs; do
     if git rev-parse -q --verify "origin/$ref" >/dev/null; then
         ref=origin/$ref
     fi
-    git checkout -q -f --detach "$ref" && git clean -q -f -d -x || exit 1
+    commit=$(git rev-parse -q --verify "$ref^{commit}") || continue
+    if [ "$(cat "$stamp" 2>/dev/null)" = "$commit $hashes" ]; then
+        echo "virglrenderer $ref, patched already"
+        exit 0
+    fi
+    # the patches against that commit, without touching the checkout
+    GIT_INDEX_FILE=$tmp/index git read-tree "$commit" || exit 1
     ok=1
     for p in "$@"; do
-        git apply --check "$p" 2>/dev/null || { ok=0; break; }
+        GIT_INDEX_FILE=$tmp/index git apply --cached --check "$p" 2>/dev/null || { ok=0; break; }
     done
     if [ "$ok" = 1 ]; then
+        rm -f "$stamp"
+        git checkout -q -f --detach "$commit" && git clean -q -f -d -x || exit 1
         for p in "$@"; do
             git apply "$p" || exit 1
         done
+        echo "$commit $hashes" > "$stamp"
         echo "virglrenderer $ref, with $# patch(es)"
         exit 0
     fi
@@ -47,12 +62,20 @@ for ref in $refs; do
 done
 [ -z "$want" ] || exit 1
 echo "WARNING: the patches apply to none of $refs: building main without them"
-git checkout -q -f --detach origin/HEAD && git clean -q -f -d -x
+commit=$(git rev-parse origin/HEAD^{commit}) || exit 1
+if [ "$(cat "$stamp" 2>/dev/null)" != "$commit none" ]; then
+    rm -f "$stamp"
+    git checkout -q -f --detach "$commit" && git clean -q -f -d -x || exit 1
+    echo "$commit none" > "$stamp"
+fi
 )sh";
 
 /*
  * sh -c SCRIPT sh SRC BUILD PREFIX VENUS RENDERER... -- MESON-ARG...:
- * configures virglrenderer with the renderers and Venus it can build
+ * configures virglrenderer with the renderers and Venus it can build.
+ * BUILD/qgm-options records them: the same options need no configuring,
+ * other ones a new build folder, since reconfiguring checks them against
+ * the choices of the first configuration.
  */
 static const char kConfigureVirgl[] = R"sh(src=$1 build=$2 prefix=$3 venus=$4
 shift 4
@@ -71,11 +94,15 @@ if [ "$venus" = true ] && ! pkg-config --exists vulkan; then
     venus=false
 fi
 echo "Native context renderers: ${renderers:-none}; Venus: $venus"
-# afresh: reconfiguring checks the options against the choices of the
-# first configuration, so a renderer a patch adds since would be refused
+options="$prefix $renderers $venus $*"
+if [ -f "$build/build.ninja" ] && [ "$(cat "$build/qgm-options" 2>/dev/null)" = "$options" ]; then
+    echo "Configured already"
+    exit 0
+fi
 rm -rf "$build"
-exec meson setup "$build" "$src" --prefix="$prefix" --libdir=lib \
-    --buildtype=release -Ddrm-renderers="$renderers" -Dvenus="$venus" "$@"
+meson setup "$build" "$src" --prefix="$prefix" --libdir=lib --buildtype=release \
+    -Ddrm-renderers="$renderers" -Dvenus="$venus" "$@" || exit 1
+echo "$options" > "$build/qgm-options"
 )sh";
 
 QString QemuBuilder::defaultSourceDir()
