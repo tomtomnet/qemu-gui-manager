@@ -132,6 +132,34 @@ bool confirm(QWidget *parent, QMessageBox::Icon icon, const QString &title,
     return box.clickedButton() == yes;
 }
 
+QMessageBox *messageBox(QMessageBox::Icon icon, const QString &title, const QString &text,
+                        QMessageBox::StandardButtons buttons, QWidget *parent)
+{
+    auto *box = new QMessageBox(icon, title, text, buttons, parent);
+
+    box->setOption(QMessageBox::Option::DontUseNativeDialog);
+    return box;
+}
+
+static void tell(QWidget *parent, QMessageBox::Icon icon, const QString &title,
+                 const QString &text)
+{
+    QMessageBox box(icon, title, text, QMessageBox::Ok, parent);
+
+    box.setOption(QMessageBox::Option::DontUseNativeDialog);
+    box.exec();
+}
+
+void inform(QWidget *parent, const QString &title, const QString &text)
+{
+    tell(parent, QMessageBox::Information, title, text);
+}
+
+void warn(QWidget *parent, const QString &title, const QString &text)
+{
+    tell(parent, QMessageBox::Warning, title, text);
+}
+
 Form *form()
 {
     return new Form;

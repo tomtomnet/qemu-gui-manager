@@ -1177,8 +1177,8 @@ void StoragePage::addDisk()
         } else if (QFileInfo(path->text().trimmed()).isFile()) {
             e.file = QFileInfo(path->text().trimmed()).absoluteFilePath();
         } else {
-            QMessageBox::information(&dialog, dialog.windowTitle(),
-                                     tr("Choose the disk image to use."));
+            Widgets::inform(&dialog, dialog.windowTitle(),
+                            tr("Choose the disk image to use."));
             continue;
         }
         m_entries << e;

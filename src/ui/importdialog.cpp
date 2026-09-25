@@ -114,7 +114,7 @@ void ImportDialog::load(const QString &path)
     QFile f(path);
 
     if (!f.open(QIODevice::ReadOnly)) {
-        QMessageBox::warning(this, windowTitle(), f.errorString());
+        Widgets::warn(this, windowTitle(), f.errorString());
         return;
     }
     m_baseDir->setText(QFileInfo(path).absolutePath());
@@ -190,7 +190,7 @@ void ImportDialog::accept()
             m_store->remove(m_vm);
             m_vm = nullptr;
         }
-        QMessageBox::warning(this, windowTitle(), tr("Cannot create the VM: %1").arg(error));
+        Widgets::warn(this, windowTitle(), tr("Cannot create the VM: %1").arg(error));
         return;
     }
     QDialog::accept();

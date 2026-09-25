@@ -168,10 +168,10 @@ void UpdateNotifier::checkNow()
         return;
     }
     if (notBefore.isValid() && now < notBefore) {
-        QMessageBox::information(m_window, tr("Updates"),
-                                 tr("GitHub asked to wait before it is asked again, until %1.")
-                                     .arg(QLocale().toString(notBefore.toLocalTime().time(),
-                                                             QLocale::ShortFormat)));
+        Widgets::inform(m_window, tr("Updates"),
+                        tr("GitHub asked to wait before it is asked again, until %1.")
+                            .arg(QLocale().toString(notBefore.toLocalTime().time(),
+                                                    QLocale::ShortFormat)));
         return;
     }
     start(true);
@@ -187,7 +187,7 @@ void UpdateNotifier::start(bool asked)
     m_asked = asked;
     if (list.isEmpty()) {
         if (asked) {
-            QMessageBox::information(
+            Widgets::inform(
                 m_window, tr("Updates"),
                 tr("There is nothing to check: this qemu-gui-manager was not built from a git "
                    "checkout, and File > Build QEMU has not built a QEMU yet."));

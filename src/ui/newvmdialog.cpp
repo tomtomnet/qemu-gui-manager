@@ -214,24 +214,24 @@ void NewVmDialog::accept()
     QString error;
 
     if (name.isEmpty()) {
-        QMessageBox::information(this, windowTitle(), tr("Give the VM a name."));
+        Widgets::inform(this, windowTitle(), tr("Give the VM a name."));
         m_name->setFocus();
         return;
     }
     if (m_existingDisk->isChecked() && !QFileInfo(diskPath).isFile()) {
-        QMessageBox::information(this, windowTitle(), tr("Choose the disk image to use."));
+        Widgets::inform(this, windowTitle(), tr("Choose the disk image to use."));
         m_diskPath->setFocus();
         return;
     }
     if (!iso.isEmpty() && !QFileInfo(iso).isFile()) {
-        QMessageBox::information(this, windowTitle(), tr("The disc image does not exist."));
+        Widgets::inform(this, windowTitle(), tr("The disc image does not exist."));
         m_iso->setFocus();
         return;
     }
 
     Vm *vm = m_store->create(name, &error);
     if (!vm) {
-        QMessageBox::warning(this, tr("Cannot Create the VM"), error);
+        Widgets::warn(this, tr("Cannot Create the VM"), error);
         return;
     }
     m_warnings.clear();
@@ -239,7 +239,7 @@ void NewVmDialog::accept()
         /* nothing worth keeping yet */
         QDir(vm->dir()).removeRecursively();
         m_store->reload();
-        QMessageBox::warning(this, tr("Cannot Create the VM"), error);
+        Widgets::warn(this, tr("Cannot Create the VM"), error);
         return;
     }
     m_vm = vm;

@@ -54,6 +54,18 @@ namespace Widgets {
 bool confirm(QWidget *parent, QMessageBox::Icon icon, const QString &title,
              const QString &text, const QString &action);
 
+/*
+ * A message box Qt draws itself.  With KDE's platform theme a QMessageBox
+ * shows the theme's own box instead, and closing that one with the title
+ * bar's X leaves this one open, unseen and modal: the window no longer takes
+ * input.  The app's message boxes come from here or set DontUseNativeDialog.
+ */
+QMessageBox *messageBox(QMessageBox::Icon icon, const QString &title, const QString &text,
+                        QMessageBox::StandardButtons buttons, QWidget *parent);
+/* QMessageBox::information() and warning(), drawn by Qt: see messageBox() */
+void inform(QWidget *parent, const QString &title, const QString &text);
+void warn(QWidget *parent, const QString &title, const QString &text);
+
 Form *form();
 /* The height of a line of @widget's text: widths of fields go by it */
 int em(const QWidget *widget);

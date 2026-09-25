@@ -325,12 +325,12 @@ bool VmPane::apply()
     /* new disks, firmware copies: now that the arguments are final */
     for (SettingsPage *page : std::as_const(m_pages)) {
         if (!page->commit(m_args, m_vm->dir(), &error)) {
-            QMessageBox::warning(this, tr("Cannot Save the Settings"), error);
+            Widgets::warn(this, tr("Cannot Save the Settings"), error);
             return false;
         }
     }
     if (m_args.toText() != m_vm->args().toText() && !m_vm->save(m_args, &error)) {
-        QMessageBox::warning(this, tr("Cannot Save the Settings"), error);
+        Widgets::warn(this, tr("Cannot Save the Settings"), error);
         return false;
     }
     m_args = m_vm->args();

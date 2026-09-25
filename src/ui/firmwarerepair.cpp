@@ -9,6 +9,7 @@
 
 #include "core/vmrunner.h"
 #include "core/vmstore.h"
+#include "ui/widgets.h"
 
 namespace FirmwareRepair {
 
@@ -61,7 +62,7 @@ static bool replace(QWidget *parent, Vm *vm, const QList<File> &files)
     }
     QGuiApplication::restoreOverrideCursor();
     if (!errors.isEmpty()) {
-        QMessageBox::warning(parent, tr("Firmware"), errors.join('\n'));
+        Widgets::warn(parent, tr("Firmware"), errors.join('\n'));
         return false;
     }
     return true;
@@ -126,8 +127,8 @@ bool reset(QWidget *parent, Vm *vm, const QList<File> &files, const QString &acc
         return false;
     }
     if (vm->runner()->isActive()) {
-        QMessageBox::information(parent, tr("Firmware"),
-                                 tr("Shut %1 down first.").arg(vm->name()));
+        Widgets::inform(parent, tr("Firmware"),
+                        tr("Shut %1 down first.").arg(vm->name()));
         return false;
     }
     for (const File &f : files) {

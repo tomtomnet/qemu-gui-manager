@@ -441,7 +441,7 @@ void MainWindow::addVm(Vm *vm)
                                          .arg(vm->name(), mounted.join(", ")), 10000);
         }
         if (!problems.isEmpty()) {
-            auto *box = new QMessageBox(
+            auto *box = Widgets::messageBox(
                 QMessageBox::Warning, tr("Shared Folders"),
                 tr("%1 could not mount some of its shared folders:\n\n%2")
                     .arg(vm->name(), problems.join('\n')),
@@ -517,7 +517,7 @@ void MainWindow::failed(Vm *vm, const QString &error)
         }
     }
 
-    auto *box = new QMessageBox(QMessageBox::Warning, title, text, QMessageBox::Close, this);
+    auto *box = Widgets::messageBox(QMessageBox::Warning, title, text, QMessageBox::Close, this);
     box->setInformativeText(error);
     box->setAttribute(Qt::WA_DeleteOnClose);
     if (QFileInfo::exists(vm->runner()->logPath())) {
@@ -680,7 +680,7 @@ void MainWindow::newVm()
     }
     select(dialog.vm()->id());
     if (!dialog.warnings().isEmpty()) {
-        QMessageBox::information(this, tr("VM Created"), dialog.warnings().join("\n\n"));
+        Widgets::inform(this, tr("VM Created"), dialog.warnings().join("\n\n"));
     }
     if (dialog.openSettings()) {
         openSettings(dialog.vm(), VmPane::Arguments);
@@ -754,10 +754,10 @@ void MainWindow::start()
         return;
     }
     if (VmConfig::qemuBinary(vm->args()).isEmpty() && Paths::qemuBinary().isEmpty()) {
-        QMessageBox::warning(this, tr("QEMU Not Found"),
-                             tr("%1 is not in PATH. Choose the QEMU to use in the "
-                                "preferences, or build one with File > Build QEMU.")
-                                 .arg(Paths::qemuSystemName()));
+        Widgets::warn(this, tr("QEMU Not Found"),
+                      tr("%1 is not in PATH. Choose the QEMU to use in the "
+                         "preferences, or build one with File > Build QEMU.")
+                          .arg(Paths::qemuSystemName()));
         return;
     }
     if (m_askingUsb.contains(vm->id())) {
@@ -789,8 +789,8 @@ void MainWindow::start()
         }
         vm->runner()->start(args);
         if (!warning.isEmpty()) {
-            auto *box = new QMessageBox(QMessageBox::Warning, tr("USB Passthrough"), warning,
-                                        QMessageBox::Ok, this);
+            auto *box = Widgets::messageBox(QMessageBox::Warning, tr("USB Passthrough"), warning,
+                                            QMessageBox::Ok, this);
             box->setAttribute(Qt::WA_DeleteOnClose);
             box->open();
         }
@@ -879,7 +879,7 @@ void MainWindow::remove()
     if (Widgets::confirm(this, QMessageBox::Question, tr("Remove %1?").arg(vm->name()), text,
                          tr("&Move to Trash")) &&
         !m_store->remove(vm, &error)) {
-        QMessageBox::warning(this, tr("Cannot Remove the VM"), error);
+        Widgets::warn(this, tr("Cannot Remove the VM"), error);
     }
 }
 
