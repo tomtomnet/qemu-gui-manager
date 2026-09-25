@@ -71,9 +71,10 @@ if [ "$venus" = true ] && ! pkg-config --exists vulkan; then
     venus=false
 fi
 echo "Native context renderers: ${renderers:-none}; Venus: $venus"
-reconfigure=
-[ -f "$build/build.ninja" ] && reconfigure=--reconfigure
-exec meson setup $reconfigure "$build" "$src" --prefix="$prefix" --libdir=lib \
+# afresh: reconfiguring checks the options against the choices of the
+# first configuration, so a renderer a patch adds since would be refused
+rm -rf "$build"
+exec meson setup "$build" "$src" --prefix="$prefix" --libdir=lib \
     --buildtype=release -Ddrm-renderers="$renderers" -Dvenus="$venus" "$@"
 )sh";
 
@@ -281,11 +282,19 @@ void QemuBuilder::addVirglSteps(const Virgl &virgl, int jobs)
                          "--output", patches.last(), patch}, patchDir};
     }
     m_steps << Step{tr("Patching virglrenderer"), "sh",
-                    QStringList{"-c", kApplyPatches, "sh", src, virgl.ref} + patches, src};
+                    QStringList{"-c", kApplyPatches, "sh", src, virgl.ref} + patches, src,
+                    false, {},
+                    "git apply " + patches.join(' ') + "  # on " +
+                        (virgl.ref.isEmpty() ? "main, else the newest release taking them"
+                                             : virgl.ref)};
 
     meson << "-c" << kConfigureVirgl << "sh" << src << build << virgl.dir + "/install"
           << (virgl.venus ? "true" : "false") << virgl.renderers << "--" << virgl.mesonArgs;
-    m_steps << Step{tr("Configuring virglrenderer"), "sh", meson, virgl.dir};
+    m_steps << Step{tr("Configuring virglrenderer"), "sh", meson, virgl.dir, false, {},
+                    QString("meson setup %1 %2 --prefix=%3/install -Ddrm-renderers=%4 "
+                            "-Dvenus=%5  # the renderers this virglrenderer has")
+                        .arg(build, src, virgl.dir, virgl.renderers.join(','),
+                             virgl.venus ? "true" : "false")};
     m_steps << Step{tr("Compiling virglrenderer"), "ninja",
                     {"-C", build, "-j", QString::number(jobs), "install"}, virgl.dir};
 }
@@ -312,7 +321,8 @@ void QemuBuilder::runNext()
         QDir().mkpath(step.dir);
     }
     emit stepStarted(step.description);
-    emit output(QString("$ %1 %2\n").arg(step.program, step.args.join(' ')));
+    emit output("$ " + (step.shown.isEmpty() ? step.program + ' ' + step.args.join(' ')
+                                             : step.shown) + '\n');
 
     m_line.clear();
     m_process = new QProcess(this);

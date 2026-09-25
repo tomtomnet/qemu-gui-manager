@@ -104,6 +104,7 @@ private:
         QString dir;
         bool configure = false;
         QStringList env = {};       // NAME=value
+        QString shown = {};         // for the log, if not the program and args
     };
 
     void addVirglSteps(const Virgl &virgl, int jobs);
