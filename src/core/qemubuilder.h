@@ -32,12 +32,14 @@ public:
         QString dir;
         QString url;
         /* A branch or tag; empty for main, else the newest of the last
-           releases that the patches apply to */
+           releases that the patches apply to, else main without them */
         QString ref;
         /* Files, or http(s) and file URLs, downloaded for each build */
         QStringList patches;
-        /* -Ddrm-renderers, e.g. xe-experimental */
+        /* -Ddrm-renderers, e.g. xe-experimental: those the checkout does
+           not know are left out */
         QStringList renderers;
+        /* If the Vulkan headers are there */
         bool venus = false;
         QStringList mesonArgs;
     };
@@ -64,6 +66,10 @@ public:
 
     static QString defaultVirglDir();
     static QString defaultVirglUrl();
+    /* Every DRM native context renderer: those a checkout lacks are left out */
+    static QStringList allRenderers();
+    /* Native context for every GPU, and Venus: what the Build QEMU window builds */
+    static Virgl defaultVirgl();
     /* The Xe native context patch of github.com/cmspam/xe-native-context-enablement */
     static QString xePatchUrl();
     /* Where the virglrenderer built in @virglDir installs its library */

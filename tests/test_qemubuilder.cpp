@@ -151,17 +151,9 @@ private slots:
         QCOMPARE(configureRuns(), 2);
     }
 
-    /* A patched virglrenderer of our own, which QEMU builds against */
-    void virgl()
+    /* A virglrenderer repository whose 1.3.0 takes @patch, not its main */
+    void virglRemote(const QString &virglRemote, const QString &patch)
     {
-        for (const char *tool : {"meson", "cc", "pkg-config", "curl"}) {
-            if (QStandardPaths::findExecutable(tool).isEmpty()) {
-                QSKIP("needs meson, cc, pkg-config and curl");
-            }
-        }
-        const QString virglRemote = m_tmp.filePath("virgl-remote");
-        const QString qemuRemote = m_tmp.filePath("qemu-remote");
-        const QString patch = m_tmp.filePath("xe.patch");
 
         /* 1.3.0 takes the patch, main has changed the same line since */
         QVERIFY(write(virglRemote + "/meson.build", kVirglMeson));
@@ -179,11 +171,47 @@ private slots:
                       QByteArray(kVirglOptions).replace("'amdgpu-experimental'",
                                                         "'amdgpu-experimental', 'msm'")));
         git(virglRemote, {"commit", "-q", "-a", "-m", "msm"});
+    }
 
+    void qemuRemote(const QString &qemuRemote)
+    {
         QVERIFY(write(qemuRemote + "/configure", kVirglConfigure, true));
         git(qemuRemote, {"init", "-q", "-b", "master"});
         git(qemuRemote, {"add", "configure"});
         git(qemuRemote, {"commit", "-q", "-m", "qemu"});
+    }
+
+    static bool haveVirglTools()
+    {
+        for (const char *tool : {"meson", "cc", "pkg-config", "curl"}) {
+            if (QStandardPaths::findExecutable(tool).isEmpty()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static QString log(const QSignalSpy &output)
+    {
+        QString text;
+        for (const QList<QVariant> &args : output) {
+            text += args[0].toString();
+        }
+        return text;
+    }
+
+    /* A patched virglrenderer of our own, which QEMU builds against */
+    void virgl()
+    {
+        if (!haveVirglTools()) {
+            QSKIP("needs meson, cc, pkg-config and curl");
+        }
+        const QString virglRemote = m_tmp.filePath("virgl-remote");
+        const QString qemuRemote = m_tmp.filePath("qemu-remote");
+        const QString patch = m_tmp.filePath("xe.patch");
+
+        this->virglRemote(virglRemote, patch);
+        this->qemuRemote(qemuRemote);
 
         const QString src = m_tmp.filePath("qemu-src");
         QemuBuilder::Options o{src, "file://" + qemuRemote, "master", true,
@@ -192,24 +220,56 @@ private slots:
         o.virgl.dir = m_tmp.filePath("virgl");
         o.virgl.url = "file://" + virglRemote;
         o.virgl.patches = {"file://" + patch};
-        o.virgl.renderers = {"xe-experimental"};
+        o.virgl.renderers = {"xe-experimental", "i915-experimental"};
 
         QemuBuilder b;
         QSignalSpy output(&b, &QemuBuilder::output);
         const QString error = build(b, o);
-        QString log;
-        for (const QList<QVariant> &args : std::as_const(output)) {
-            log += args[0].toString();
-        }
+        const QString log = this->log(output);
         QVERIFY2(error.isEmpty(), qPrintable(error + "\n" + log));
         QVERIFY2(log.contains("The patches do not apply to origin/HEAD"), qPrintable(log));
         QVERIFY2(log.contains("virglrenderer 1.3.0, with 1 patch(es)"), qPrintable(log));
+        /* asked for, not in that virglrenderer */
+        QVERIFY2(log.contains("No i915-experimental renderer in this virglrenderer"), qPrintable(log));
+        QVERIFY2(log.contains("Native context renderers: xe-experimental;"), qPrintable(log));
 
         const QString lib = QemuBuilder::virglLibDir(o.virgl.dir);
         QVERIFY(QFileInfo::exists(lib + "/libvirglrenderer.so.1"));
         QCOMPARE(read(QemuBuilder::buildDir(src) + "/virgl-libdir"), lib);
         QVERIFY(read(QemuBuilder::buildDir(src) + "/configure-args")
                     .endsWith("--extra-ldflags=-Wl,-rpath," + lib));
+    }
+
+    /* A patch that applies nowhere: main without it, and without its renderer */
+    void virglWithoutPatch()
+    {
+        if (!haveVirglTools()) {
+            QSKIP("needs meson, cc, pkg-config and curl");
+        }
+        const QString virglRemote = m_tmp.filePath("virgl-remote2");
+        const QString qemuRemote = m_tmp.filePath("qemu-remote2");
+        const QString patch = m_tmp.filePath("xe2.patch");
+
+        this->virglRemote(virglRemote, patch);
+        this->qemuRemote(qemuRemote);
+        QVERIFY(write(patch, "--- a/nothing\n+++ b/nothing\n@@ -1 +1 @@\n-a\n+b\n"));
+
+        QemuBuilder::Options o{m_tmp.filePath("qemu-src2"), "file://" + qemuRemote, "master",
+                               true, QemuBuilder::defaultConfigureArgs(), {}, 2};
+        o.virgl.enabled = true;
+        o.virgl.dir = m_tmp.filePath("virgl2");
+        o.virgl.url = "file://" + virglRemote;
+        o.virgl.patches = {patch};
+        o.virgl.renderers = {"xe-experimental", "amdgpu-experimental", "msm"};
+
+        QemuBuilder b;
+        QSignalSpy output(&b, &QemuBuilder::output);
+        const QString error = build(b, o);
+        const QString log = this->log(output);
+        QVERIFY2(error.isEmpty(), qPrintable(error + "\n" + log));
+        QVERIFY2(log.contains("WARNING: the patches apply to none"), qPrintable(log));
+        QVERIFY2(log.contains("Native context renderers: amdgpu-experimental,msm;"), qPrintable(log));
+        QVERIFY(QFileInfo::exists(QemuBuilder::virglLibDir(o.virgl.dir) + "/libvirglrenderer.so.1"));
     }
 
     void failure()

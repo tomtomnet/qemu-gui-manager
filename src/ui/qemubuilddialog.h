@@ -10,12 +10,12 @@ class QLineEdit;
 class QPlainTextEdit;
 class QProgressBar;
 class QPushButton;
-class QRadioButton;
 class QemuBuilder;
 
 /*
- * Builds QEMU, by default the qemu-gui fork, and makes it the QEMU of the
- * VMs: pick the sources and the configure options, then Update and Build.
+ * Builds qemu-gui, kept up to date from its repository, and makes it the
+ * QEMU of the VMs.  With DRM native context, it first builds a
+ * virglrenderer of its own with the renderers of every GPU that has one.
  */
 class QemuBuildDialog : public QDialog
 {
@@ -32,29 +32,15 @@ protected:
     void closeEvent(QCloseEvent *event) override;
 
 private:
-    QString sourceDir() const;
-    QStringList renderers() const;
     void build();
-    void updateVirglStatus();
     void finished(const QString &error);
     void updateState();
+    void updateVirglStatus();
 
     QemuBuilder *m_builder;
-    QRadioButton *m_managed;
-    QRadioButton *m_own;
-    QLineEdit *m_branch;
-    QLineEdit *m_dir;
     QComboBox *m_preset;
     QLineEdit *m_configure;
-    QRadioButton *m_virglSystem;
-    QRadioButton *m_virglOwn;
-    QCheckBox *m_xe;
-    QCheckBox *m_i915;
-    QCheckBox *m_amd;
-    QCheckBox *m_venus;
-    QLineEdit *m_virglPatches;
-    QLineEdit *m_virglRef;
-    QLineEdit *m_virglMeson;
+    QCheckBox *m_virgl;
     QLabel *m_virglStatus;
     QLabel *m_step;
     QProgressBar *m_progress;

@@ -17,7 +17,7 @@ static const char kStamp[] = "/qgm-configure-args";
 /*
  * sh -c SCRIPT sh DIR REF PATCH...: checks out REF, or else the newest of
  * main and the last releases that all the patches apply to, then applies
- * them
+ * them; if none takes them, main without them
  */
 static const char kApplyPatches[] = R"sh(cd "$1" || exit 1
 want=$2
@@ -45,8 +45,36 @@ for ref in $refs; do
     fi
     echo "The patches do not apply to $ref"
 done
-echo "The patches apply to none of: $refs" >&2
-exit 1
+[ -z "$want" ] || exit 1
+echo "WARNING: the patches apply to none of $refs: building main without them"
+git checkout -q -f --detach origin/HEAD && git clean -q -f -d -x
+)sh";
+
+/*
+ * sh -c SCRIPT sh SRC BUILD PREFIX VENUS RENDERER... -- MESON-ARG...:
+ * configures virglrenderer with the renderers and Venus it can build
+ */
+static const char kConfigureVirgl[] = R"sh(src=$1 build=$2 prefix=$3 venus=$4
+shift 4
+renderers=
+while [ $# -gt 0 ] && [ "$1" != -- ]; do
+    if grep -q "'$1'" "$src/meson_options.txt"; then
+        renderers="$renderers${renderers:+,}$1"
+    else
+        echo "No $1 renderer in this virglrenderer"
+    fi
+    shift
+done
+[ $# -gt 0 ] && shift
+if [ "$venus" = true ] && ! pkg-config --exists vulkan; then
+    echo "WARNING: no Vulkan headers, so no Venus (sudo dnf install vulkan-loader-devel)"
+    venus=false
+fi
+echo "Native context renderers: ${renderers:-none}; Venus: $venus"
+reconfigure=
+[ -f "$build/build.ninja" ] && reconfigure=--reconfigure
+exec meson setup $reconfigure "$build" "$src" --prefix="$prefix" --libdir=lib \
+    --buildtype=release -Ddrm-renderers="$renderers" -Dvenus="$venus" "$@"
 )sh";
 
 QString QemuBuilder::defaultSourceDir()
@@ -93,6 +121,25 @@ QString QemuBuilder::xePatchUrl()
 {
     return "https://raw.githubusercontent.com/cmspam/xe-native-context-enablement/master/"
            "virglrenderer-xe-native-context.patch";
+}
+
+QStringList QemuBuilder::allRenderers()
+{
+    return {"amdgpu-experimental", "i915-experimental", "xe-experimental", "msm", "asahi",
+            "panfrost-experimental"};
+}
+
+QemuBuilder::Virgl QemuBuilder::defaultVirgl()
+{
+    Virgl virgl;
+
+    virgl.enabled = true;
+    virgl.dir = defaultVirglDir();
+    virgl.url = defaultVirglUrl();
+    virgl.patches = {xePatchUrl()};
+    virgl.renderers = allRenderers();
+    virgl.venus = true;
+    return virgl;
 }
 
 QString QemuBuilder::virglLibDir(const QString &virglDir)
@@ -215,7 +262,7 @@ void QemuBuilder::addVirglSteps(const Virgl &virgl, int jobs)
     if (!QFileInfo::exists(src + "/.git")) {
         m_steps << Step{tr("Downloading virglrenderer"), "git",
                         {"clone", "--quiet", virgl.url, src}, {}};
-    } else if (m_options.update) {
+    } else {
         m_steps << Step{tr("Downloading the changes to virglrenderer"), "git",
                         {"fetch", "--quiet", "--tags", "--force", "origin"}, src};
     }
@@ -236,14 +283,9 @@ void QemuBuilder::addVirglSteps(const Virgl &virgl, int jobs)
     m_steps << Step{tr("Patching virglrenderer"), "sh",
                     QStringList{"-c", kApplyPatches, "sh", src, virgl.ref} + patches, src};
 
-    meson << "setup" << build << src << "--prefix=" + virgl.dir + "/install"
-          << "--libdir=lib" << "--buildtype=release"
-          << "-Ddrm-renderers=" + virgl.renderers.join(',')
-          << QString("-Dvenus=%1").arg(virgl.venus ? "true" : "false") << virgl.mesonArgs;
-    if (QFileInfo::exists(build + "/build.ninja")) {
-        meson.insert(1, "--reconfigure");
-    }
-    m_steps << Step{tr("Configuring virglrenderer"), "meson", meson, virgl.dir};
+    meson << "-c" << kConfigureVirgl << "sh" << src << build << virgl.dir + "/install"
+          << (virgl.venus ? "true" : "false") << virgl.renderers << "--" << virgl.mesonArgs;
+    m_steps << Step{tr("Configuring virglrenderer"), "sh", meson, virgl.dir};
     m_steps << Step{tr("Compiling virglrenderer"), "ninja",
                     {"-C", build, "-j", QString::number(jobs), "install"}, virgl.dir};
 }
