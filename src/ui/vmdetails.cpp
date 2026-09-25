@@ -126,7 +126,8 @@ VmDetails::VmDetails(QWidget *parent)
     m_growing->setInterval(5000);
     connect(m_growing, &QTimer::timeout, this, [this]() {
         if (m_vm && m_vm->runner()->isActive() && isVisible()) {
-            if (VmConfig::graphics(m_vm->args()).nativeContext) {
+            const VmConfig::Graphics g = VmConfig::graphics(m_vm->args());
+            if (g.nativeContext || g.venus) {
                 m_contexts->update(m_vm->runner()->qmp());
             }
             refresh();
@@ -165,10 +166,12 @@ void VmDetails::refresh()
     m_note->setVisible(keptOpen(m_vm));
 
     /* native context asked for: what the guest does with it, while it runs */
-    const bool native = VmConfig::graphics(m_vm->args()).nativeContext;
+    const VmConfig::Graphics graphics = VmConfig::graphics(m_vm->args());
+    const bool native = graphics.nativeContext;
     if (!m_vm->runner()->isActive()) {
         m_contexts->reset();
-    } else if (native && m_contexts->status() == GpuContexts::Status::Unknown) {
+    } else if ((native || graphics.venus) &&
+               m_contexts->status() == GpuContexts::Status::Unknown) {
         m_contexts->update(m_vm->runner()->qmp());
     }
     switch (native && m_vm->runner()->isActive() ? m_contexts->status()
@@ -273,25 +276,41 @@ QString VmDetails::html() const
              {tr("Firmware"), text(UiConfig::firmwareSummary(args))}});
 
     Rows display{{tr("Graphics"), text(UiConfig::displaySummary(args, info))}};
-    if (VmConfig::graphics(args).nativeContext && m_vm->runner()->isActive()) {
-        switch (m_contexts->status()) {
-        case GpuContexts::Status::InUse:
-            display << std::pair(tr("Native context"), text(tr("in use")));
-            break;
-        case GpuContexts::Status::Virgl:
-            display << std::pair(tr("Native context"),
-                                 text(tr("not used: the guest draws through virgl")));
-            break;
-        case GpuContexts::Status::NotOffered:
-            display << std::pair(tr("Native context"), text(tr("not offered by this computer")));
-            break;
-        case GpuContexts::Status::Waiting:
-            display << std::pair(tr("Native context"),
-                                 text(tr("offered; the guest has not drawn in 3D yet")));
-            break;
-        case GpuContexts::Status::Unknown:
-            break;
+    const VmConfig::Graphics graphics = VmConfig::graphics(args);
+    if (graphics.kind == VmConfig::Graphics::Accelerated) {
+        /* what the guest does with them, once it runs */
+        const bool running = m_vm->runner()->isActive();
+        const GpuContexts::Status status =
+            running ? m_contexts->status() : GpuContexts::Status::Unknown;
+        QString native = tr("off");
+        QString venus = tr("off");
+
+        if (graphics.nativeContext) {
+            switch (status) {
+            case GpuContexts::Status::InUse:
+                native = tr("on, in use");
+                break;
+            case GpuContexts::Status::Virgl:
+                native = tr("on, but the guest draws through virgl");
+                break;
+            case GpuContexts::Status::NotOffered:
+                native = tr("on, but this computer does not offer it");
+                break;
+            case GpuContexts::Status::Waiting:
+                native = tr("on; the guest has not drawn in 3D yet");
+                break;
+            case GpuContexts::Status::Unknown:
+                native = tr("on");
+                break;
+            }
         }
+        if (graphics.venus) {
+            venus = status == GpuContexts::Status::Unknown ? tr("on")
+                    : m_contexts->venusUsed()              ? tr("on, in use")
+                                                           : tr("on, not used yet");
+        }
+        display << std::pair(tr("DRM native context"), text(native))
+                << std::pair(tr("Venus"), text(venus));
     }
     section(tr("Display"), display);
 

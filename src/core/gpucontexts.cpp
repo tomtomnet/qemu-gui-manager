@@ -7,6 +7,8 @@
 
 /* Where the devices of the command line are: with an id, and without */
 static const char *const kParents[] = {"/machine/peripheral", "/machine/peripheral-anon"};
+static const QStringList kProperties{"x-drm-offered", "x-drm-contexts", "x-virgl-contexts",
+                                     "x-venus-contexts"};
 
 GpuContexts::GpuContexts(QObject *parent) : QObject(parent)
 {
@@ -42,6 +44,7 @@ void GpuContexts::reset()
 {
     m_path.clear();
     m_status = Status::Unknown;
+    m_venusUsed = false;
     m_busy = false;
 }
 
@@ -55,7 +58,7 @@ void GpuContexts::update(QmpClient *qmp)
     if (m_path.isEmpty()) {
         findGpu(0);
     } else {
-        readCounts();
+        readCounts(kProperties, {});
     }
 }
 
@@ -75,55 +78,49 @@ void GpuContexts::findGpu(int parent)
         if (m_path.isEmpty()) {
             findGpu(parent + 1);
         } else if (m_qmp) {
-            readCounts();
+            readCounts(kProperties, {});
         } else {
             finish(Status::Unknown);
         }
     });
 }
 
-void GpuContexts::readCounts()
+/*
+ * One property after the other: a QEMU without the counts has no
+ * x-drm-offered, and nothing is told then
+ */
+void GpuContexts::readCounts(QStringList properties, QJsonObject values)
 {
-    auto get = [this](const char *property, const QmpClient::Callback &done) {
-        m_qmp->execute("qom-get", {{"path", m_path}, {"property", property}}, done);
-    };
     const QPointer<GpuContexts> guard(this);
 
-    /* a QEMU without the counts has no x-drm-offered: nothing to tell then */
-    get("x-drm-offered", [=, this](const QJsonValue &offered, const QString &error) {
-        if (!guard || !m_qmp) {
+    if (properties.isEmpty()) {
+        finish(statusOf(values["x-drm-offered"].toBool(), values["x-drm-contexts"].toInteger(),
+                        values["x-virgl-contexts"].toInteger()),
+               values["x-venus-contexts"].toInteger() > 0);
+        return;
+    }
+    const QString property = properties.takeFirst();
+    m_qmp->execute("qom-get", {{"path", m_path}, {"property", property}},
+                   [=, this](const QJsonValue &value, const QString &error) mutable {
+        if (!guard) {
             return;
         }
-        if (!error.isEmpty()) {
+        if (!error.isEmpty() || !m_qmp) {
             finish(Status::Unknown);
             return;
         }
-        get("x-drm-contexts", [=, this](const QJsonValue &drm, const QString &error) {
-            if (!guard || !m_qmp) {
-                return;
-            }
-            if (!error.isEmpty()) {
-                finish(Status::Unknown);
-                return;
-            }
-            get("x-virgl-contexts", [=, this](const QJsonValue &virgl, const QString &error) {
-                if (!guard) {
-                    return;
-                }
-                finish(error.isEmpty() ? statusOf(offered.toBool(), drm.toInteger(),
-                                                  virgl.toInteger())
-                                       : Status::Unknown);
-            });
-        });
+        values[property] = value;
+        readCounts(properties, values);
     });
 }
 
-void GpuContexts::finish(Status status)
+void GpuContexts::finish(Status status, bool venusUsed)
 {
-    const bool changing = status != m_status;
+    const bool changing = status != m_status || venusUsed != m_venusUsed;
 
     m_busy = false;
     m_status = status;
+    m_venusUsed = venusUsed;
     if (changing) {
         emit changed();
     }

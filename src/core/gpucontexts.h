@@ -2,6 +2,7 @@
 #pragma once
 
 #include <QJsonArray>
+#include <QJsonObject>
 #include <QObject>
 #include <QPointer>
 
@@ -34,6 +35,8 @@ public:
     /* Another run of QEMU, or another VM: the GPU is looked for again */
     void reset();
     Status status() const { return m_status; }
+    /* The guest created Venus contexts since it booted */
+    bool venusUsed() const { return m_venusUsed; }
 
     /* The QOM path of the 3D GPU among the children of @parent, from qom-list */
     static QString findGpu(const QJsonArray &children, const QString &parent);
@@ -44,11 +47,12 @@ signals:
 
 private:
     void findGpu(int parent);
-    void readCounts();
-    void finish(Status status);
+    void readCounts(QStringList properties, QJsonObject values);
+    void finish(Status status, bool venusUsed = false);
 
     QPointer<QmpClient> m_qmp;
     QString m_path;
     Status m_status = Status::Unknown;
+    bool m_venusUsed = false;
     bool m_busy = false;
 };
