@@ -9,15 +9,74 @@ find_package(Qt6 6.4 REQUIRED COMPONENTS Core Concurrent Gui Network Widgets)
 qt_standard_project_setup()
 
 # Everything but the windows, so that tests can use it
-file(GLOB CORE_SOURCES CONFIGURE_DEPENDS src/core/*.cpp src/core/*.h)
-qt_add_library(qgm_core STATIC ${CORE_SOURCES})
+qt_add_library(qgm_core STATIC
+    src/core/argsfile.cpp
+    src/core/argsfile.h
+    src/core/firmware.cpp
+    src/core/firmware.h
+    src/core/hostdevices.cpp
+    src/core/hostdevices.h
+    src/core/importer.cpp
+    src/core/importer.h
+    src/core/optionvalue.cpp
+    src/core/optionvalue.h
+    src/core/paths.cpp
+    src/core/paths.h
+    src/core/qemubuilder.cpp
+    src/core/qemubuilder.h
+    src/core/qemuinfo.cpp
+    src/core/qemuinfo.h
+    src/core/qmpclient.cpp
+    src/core/qmpclient.h
+    src/core/vmconfig.cpp
+    src/core/vmconfig.h
+    src/core/vmrunner.cpp
+    src/core/vmrunner.h
+    src/core/vmstore.cpp
+    src/core/vmstore.h
+)
 target_include_directories(qgm_core PUBLIC src)
 target_link_libraries(qgm_core PUBLIC
     Qt6::Core Qt6::Concurrent Qt6::Gui Qt6::Network)
 target_compile_options(qgm_core PRIVATE -Wall -Wextra)
 
-file(GLOB UI_SOURCES CONFIGURE_DEPENDS src/ui/*.cpp src/ui/*.h)
-qt_add_executable(qemu-gui-manager src/main.cpp ${UI_SOURCES})
+qt_add_executable(qemu-gui-manager
+    src/main.cpp
+    src/ui/argseditor.cpp
+    src/ui/argseditor.h
+    src/ui/banner.cpp
+    src/ui/banner.h
+    src/ui/icons.cpp
+    src/ui/icons.h
+    src/ui/importdialog.cpp
+    src/ui/importdialog.h
+    src/ui/mainwindow.cpp
+    src/ui/mainwindow.h
+    src/ui/newvmdialog.cpp
+    src/ui/newvmdialog.h
+    src/ui/preferencesdialog.cpp
+    src/ui/preferencesdialog.h
+    src/ui/qemubuilddialog.cpp
+    src/ui/qemubuilddialog.h
+    src/ui/qemudocs.cpp
+    src/ui/qemudocs.h
+    src/ui/referencepanel.cpp
+    src/ui/referencepanel.h
+    src/ui/settingsdialog.cpp
+    src/ui/settingsdialog.h
+    src/ui/settingspages.cpp
+    src/ui/settingspages.h
+    src/ui/textdialog.cpp
+    src/ui/textdialog.h
+    src/ui/uiconfig.cpp
+    src/ui/uiconfig.h
+    src/ui/vmdetails.cpp
+    src/ui/vmdetails.h
+    src/ui/vmtemplate.cpp
+    src/ui/vmtemplate.h
+    src/ui/widgets.cpp
+    src/ui/widgets.h
+)
 qt_add_resources(qemu-gui-manager icons PREFIX /icons BASE data
     FILES data/qemu-gui-manager.svg)
 target_link_libraries(qemu-gui-manager PRIVATE qgm_core Qt6::Widgets)
@@ -35,11 +94,20 @@ option(BUILD_TESTING "Build the unit tests" ON)
 if(BUILD_TESTING)
     enable_testing()
     find_package(Qt6 REQUIRED COMPONENTS Test)
-    file(GLOB TEST_SOURCES CONFIGURE_DEPENDS tests/test_*.cpp)
-    foreach(source ${TEST_SOURCES})
-        get_filename_component(name ${source} NAME_WE)
-        qt_add_executable(${name} ${source})
-        target_link_libraries(${name} PRIVATE qgm_core Qt6::Test)
-        add_test(NAME ${name} COMMAND ${name})
+    foreach(name
+            argsfile
+            firmware
+            hostdevices
+            importer
+            optionvalue
+            qemubuilder
+            qemuinfo
+            qmpclient
+            vmconfig
+            vmrunner
+            vmstore)
+        qt_add_executable(test_${name} tests/test_${name}.cpp)
+        target_link_libraries(test_${name} PRIVATE qgm_core Qt6::Test)
+        add_test(NAME ${name} COMMAND test_${name})
     endforeach()
 endif()
