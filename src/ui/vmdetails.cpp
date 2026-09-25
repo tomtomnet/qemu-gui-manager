@@ -100,7 +100,6 @@ VmDetails::VmDetails(QWidget *parent)
     });
     m_text->setFrameShape(QFrame::NoFrame);
 
-    layout->setContentsMargins(0, 0, 0, 0);
     layout->addLayout(header);
     layout->addWidget(m_note);
     layout->addWidget(m_error);

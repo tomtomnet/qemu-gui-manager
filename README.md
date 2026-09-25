@@ -24,8 +24,11 @@ fork whose SDL window has a menu, but it runs any `qemu-system-x86_64`.
   distribution's firmware (optionally with Secure Boot), virtio disk,
   network and GPU, SDL with OpenGL, a USB tablet, PipeWire sound and the
   shared clipboard.
-- Settings pages for memory and CPUs, shared folders (virtiofs), PCI
-  passthrough (vfio) and USB passthrough.
+- The selected VM's details and settings in tabs beside the list, no
+  separate window: memory and CPUs, boot, display and 3D acceleration,
+  disks, shared folders (virtiofs), PCI passthrough (vfio) and USB
+  passthrough. Changes wait from tab to tab until you apply them, and the
+  manager asks before it drops any.
 - The full argument list in a plain-text editor, with highlighting, checks
   and completion.
 - A QEMU reference: every option, device (with its properties), machine, CPU

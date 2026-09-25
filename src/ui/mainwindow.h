@@ -17,6 +17,7 @@ class QSplitter;
 class QStackedWidget;
 class Vm;
 class VmDetails;
+class VmPane;
 class VmStore;
 
 /* The VMs on the left, the selected one on the right, VirtualBox style */
@@ -51,6 +52,8 @@ private:
     void updateActions();
     void updateStatus();
     void currentChanged();
+    void showCurrent();
+    void leaveVm();
 
     void start();
     void togglePause();
@@ -65,6 +68,7 @@ private:
     VmStore *m_store;
     QListWidget *m_list;
     QStackedWidget *m_right;
+    VmPane *m_pane;
     VmDetails *m_details;
     QSplitter *m_splitter;
     QLabel *m_qemuStatus;
@@ -78,6 +82,8 @@ private:
     /* Waiting for access to their USB devices, to start */
     QSet<QString> m_askingUsb;
     QPointer<QemuBuildDialog> m_buildDialog;
+    /* The selection left a VM with changes, to ask about */
+    bool m_leaving = false;
 
     QAction *m_new;
     QAction *m_import;

@@ -29,8 +29,8 @@ class QTreeWidgetItem;
 class Vm;
 
 /*
- * A page of the settings dialog.  All pages edit the same arguments: a
- * page shows them when it is entered and writes back what the user changed
+ * A settings tab of a VM.  All pages edit the same arguments: a page
+ * shows them when it is entered and writes back what the user changed
  * when it is left, so that the other pages, the Arguments page above all,
  * see the changes.
  */
@@ -50,8 +50,8 @@ public:
     virtual bool isModified() const = 0;
     /*
      * What the arguments to save need in the VM folder, e.g. the new disks
-     * they name: done when the dialog applies, not when a page is left,
-     * so that Cancel leaves nothing behind
+     * they name: done on Apply, not when a page is left, so that Discard
+     * leaves nothing behind
      */
     virtual bool commit(const ArgsFile &args, const QString &vmDir, QString *error)
     {
@@ -284,7 +284,7 @@ class PciPage : public SettingsPage
 public:
     explicit PciPage(QWidget *parent = nullptr);
 
-    QString title() const override { return tr("PCI Devices"); }
+    QString title() const override { return tr("PCI"); }
     QIcon icon() const override;
     void load(const ArgsFile &args) override;
     void save(ArgsFile &args) override;
@@ -305,7 +305,7 @@ class UsbPage : public SettingsPage
 public:
     explicit UsbPage(QWidget *parent = nullptr);
 
-    QString title() const override { return tr("USB Devices"); }
+    QString title() const override { return tr("USB"); }
     QIcon icon() const override;
     void load(const ArgsFile &args) override;
     void save(ArgsFile &args) override;

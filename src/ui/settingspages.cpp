@@ -102,7 +102,7 @@ SystemPage::SystemPage(QWidget *parent)
       m_accel(new QComboBox), m_defaultQemu(new QRadioButton),
       m_ownQemu(new QRadioButton(tr("This &build:"))), m_qemuPath(new QLineEdit),
       m_qemuInfo(Widgets::hint()), m_firmware(new QComboBox), m_firmwareInfo(Widgets::hint()),
-      m_bootMenu(new QCheckBox(tr("Show the boot &menu when the VM starts"))),
+      m_bootMenu(new QCheckBox(tr("Show the boot men&u when the VM starts"))),
       m_bootDevice(new QComboBox)
 {
     auto *layout = new QVBoxLayout(this);
@@ -172,14 +172,14 @@ SystemPage::SystemPage(QWidget *parent)
     connect(m_model, &QComboBox::currentTextChanged, this, &SystemPage::describe);
     connect(m_machine, &QComboBox::currentTextChanged, this, &SystemPage::describe);
 
-    form->addRow(Widgets::label(tr("&Memory:"), m_memory), memoryRow);
+    form->addRow(Widgets::label(tr("M&emory:"), m_memory), memoryRow);
     form->addRow(QString(), Widgets::hint(tr("This computer has %1 GiB.")
                                      .arg(QString::number(hostMiB / 1024.0, 'f', 1))));
     form->addRow(Widgets::label(tr("&Processors:"), m_cpus), cpuRow);
     form->addRow(QString(), topologyRow);
-    form->addRow(tr("Processor &model:"), m_model);
+    form->addRow(tr("Processor mode&l:"), m_model);
     form->addRow(QString(), m_modelInfo);
-    form->addRow(tr("Mac&hine:"), m_machine);
+    form->addRow(tr("Ma&chine:"), m_machine);
     form->addRow(QString(), m_machineInfo);
     form->addRow(tr("&Acceleration:"), m_accel);
 
@@ -214,7 +214,7 @@ SystemPage::SystemPage(QWidget *parent)
     m_bootDevice->addItem(tr("The network (PXE)"), int(VmConfig::BootDevice::Network));
     m_bootDevice->setToolTip(tr("Sets bootindex=1 on its device, which both SeaBIOS and "
                                 "UEFI follow"));
-    bootForm->addRow(tr("&Firmware:"), m_firmware);
+    bootForm->addRow(tr("F&irmware:"), m_firmware);
     bootForm->addRow(QString(), m_firmwareInfo);
     bootForm->addRow(tr("&Start from:"), m_bootDevice);
     bootForm->addRow(QString(), m_bootMenu);
@@ -633,7 +633,7 @@ DisplayPage::DisplayPage(QWidget *parent)
     auto *features = new QGroupBox(tr("3D acceleration"));
     auto *featuresLayout = new QVBoxLayout(features);
     auto *hostmemRow = new QHBoxLayout;
-    auto *hostmemLabel = Widgets::label(tr("GPU &memory window:"), m_hostmem);
+    auto *hostmemLabel = Widgets::label(tr("GPU m&emory window:"), m_hostmem);
 
     m_kind->setObjectName("graphics");
     m_device->setObjectName("gpuDevice");
@@ -824,7 +824,7 @@ StoragePage::StoragePage(const QString &vmDir, QWidget *parent)
 {
     auto *layout = new QVBoxLayout(this);
     auto *buttons = new QHBoxLayout;
-    auto *addDisk = new QPushButton(tr("Add &Hard Disk…"));
+    auto *addDisk = new QPushButton(tr("Add Hard Dis&k…"));
     auto *addCdrom = new QPushButton(tr("Add &CD/DVD Drive"));
 
     m_table->setObjectName("disks");
@@ -1863,7 +1863,6 @@ ArgumentsPage::ArgumentsPage(const QString &vmDir, QWidget *parent)
     splitter->setStretchFactor(1, 2);
     splitter->setChildrenCollapsible(false);
 
-    layout->setContentsMargins(0, 0, 0, 0);
     layout->addWidget(Widgets::note(tr("The QEMU command line of this VM, one option per line; lines "
                               "starting with # are comments. The other pages edit these "
                               "same lines. Ctrl+Space completes option and device names.")));
