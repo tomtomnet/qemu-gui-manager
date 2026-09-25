@@ -4,10 +4,13 @@
 #include <QDialog>
 #include <QIcon>
 #include <QList>
+#include <QMap>
+#include <QTemporaryDir>
 #include <QWidget>
 
 #include "core/argsfile.h"
 #include "core/vmconfig.h"
+#include "core/vmhardware.h"
 
 class ArgsEditorPane;
 class Banner;
@@ -45,6 +48,18 @@ public:
     virtual void save(ArgsFile &args) = 0;
     /* The user changed something since load() */
     virtual bool isModified() const = 0;
+    /*
+     * What the arguments to save need in the VM folder, e.g. the new disks
+     * they name: done when the dialog applies, not when a page is left,
+     * so that Cancel leaves nothing behind
+     */
+    virtual bool commit(const ArgsFile &args, const QString &vmDir, QString *error)
+    {
+        Q_UNUSED(args);
+        Q_UNUSED(vmDir);
+        Q_UNUSED(error);
+        return true;
+    }
 };
 
 class GeneralPage : public SettingsPage
@@ -77,8 +92,14 @@ public:
     void load(const ArgsFile &args) override;
     void save(ArgsFile &args) override;
     bool isModified() const override;
+    bool commit(const ArgsFile &args, const QString &vmDir, QString *error) override;
 
 private:
+    void loadBoot(const ArgsFile &args);
+    void saveBoot(ArgsFile &args);
+    bool bootModified() const;
+    void describeFirmware();
+
     /* The QEMU chosen, empty for the default one */
     QString chosenQemu() const;
     void updateQemu();
@@ -104,12 +125,97 @@ private:
     QRadioButton *m_ownQemu;
     QLineEdit *m_qemuPath;
     QLabel *m_qemuInfo;
+    QComboBox *m_firmware;
+    QLabel *m_firmwareInfo;
+    QCheckBox *m_bootMenu;
+    QComboBox *m_bootDevice;
+    /* The firmware files apply() copies, until the dialog applies */
+    QTemporaryDir m_staging;
 
     qint64 m_loadedMemory = 0;
     VmConfig::Cpus m_loadedCpus;
     QString m_loadedMachine;
     QString m_loadedAccel;
     QString m_loadedQemu;
+    VmConfig::FirmwareKind m_loadedFirmware = VmConfig::FirmwareKind::Bios;
+    bool m_loadedBootMenu = false;
+    VmConfig::BootDevice m_loadedBootDevice = VmConfig::BootDevice::Default;
+};
+
+class DisplayPage : public SettingsPage
+{
+    Q_OBJECT
+
+public:
+    explicit DisplayPage(QWidget *parent = nullptr);
+
+    QString title() const override { return tr("Display"); }
+    QIcon icon() const override;
+    void load(const ArgsFile &args) override;
+    void save(ArgsFile &args) override;
+    bool isModified() const override;
+
+private:
+    /* The graphics the page shows */
+    VmConfig::Graphics shown() const;
+    void fillDevices();
+    void update();
+
+    Banner *m_custom;
+    QComboBox *m_kind;
+    QComboBox *m_device;
+    QCheckBox *m_nativeContext;
+    QCheckBox *m_venus;
+    QSpinBox *m_hostmem;
+    QComboBox *m_window;
+
+    VmConfig::Graphics m_loaded;
+    int m_loadedHostmemGiB = 0;
+    /* ARM's virt: no VGA */
+    bool m_virt = false;
+};
+
+class StoragePage : public SettingsPage
+{
+    Q_OBJECT
+
+public:
+    explicit StoragePage(const QString &vmDir, QWidget *parent = nullptr);
+
+    QString title() const override { return tr("Storage"); }
+    QIcon icon() const override;
+    void load(const ArgsFile &args) override;
+    void save(ArgsFile &args) override;
+    bool isModified() const override;
+    bool commit(const ArgsFile &args, const QString &vmDir, QString *error) override;
+
+private:
+    struct Entry {
+        VmConfig::Disk disk;        // as loaded; line -1 for one added since
+        QString file;               // the disc now in a CD/DVD drive
+        int newGiB = 0;             // a disk to create, of this size
+        bool removed = false;
+    };
+
+    void fill();
+    void updateButtons();
+    int current() const;
+    void addDisk();
+    void addCdrom();
+    void chooseDisc();
+    void resize();
+    QString newDiskName() const;
+
+    QString m_vmDir;
+    QTableWidget *m_table;
+    QPushButton *m_disc;
+    QPushButton *m_eject;
+    QPushButton *m_resize;
+    QPushButton *m_remove;
+    QList<Entry> m_entries;
+    /* New disks, by file name, until the dialog applies and creates them */
+    QMap<QString, int> m_pending;
+    bool m_virt = false;
 };
 
 class SharesPage : public SettingsPage

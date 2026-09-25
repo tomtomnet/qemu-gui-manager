@@ -21,7 +21,9 @@ class SettingsDialog : public QDialog
     Q_OBJECT
 
 public:
-    enum Page { General, System, SharedFolders, PciDevices, UsbDevices, Arguments };
+    enum Page {
+        General, System, Display, Storage, SharedFolders, PciDevices, UsbDevices, Arguments,
+    };
 
     explicit SettingsDialog(Vm *vm, QWidget *parent = nullptr);
 

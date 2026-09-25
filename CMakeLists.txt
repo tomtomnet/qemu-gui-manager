@@ -32,10 +32,14 @@ qt_add_library(qgm_core STATIC
     src/core/qmpclient.h
     src/core/vmconfig.cpp
     src/core/vmconfig.h
+    src/core/vmhardware.cpp
+    src/core/vmhardware.h
     src/core/vmrunner.cpp
     src/core/vmrunner.h
     src/core/vmstore.cpp
     src/core/vmstore.h
+    src/core/vmtemplate.cpp
+    src/core/vmtemplate.h
 )
 target_include_directories(qgm_core PUBLIC src)
 target_link_libraries(qgm_core PUBLIC
@@ -76,8 +80,6 @@ qt_add_executable(qemu-gui-manager
     src/ui/uiconfig.h
     src/ui/vmdetails.cpp
     src/ui/vmdetails.h
-    src/ui/vmtemplate.cpp
-    src/ui/vmtemplate.h
     src/ui/widgets.cpp
     src/ui/widgets.h
 )
@@ -109,8 +111,10 @@ if(BUILD_TESTING)
             qemuinfo
             qmpclient
             vmconfig
+            vmhardware
             vmrunner
-            vmstore)
+            vmstore
+            vmtemplate)
         qt_add_executable(test_${name} tests/test_${name}.cpp)
         target_link_libraries(test_${name} PRIVATE qgm_core Qt6::Test)
         add_test(NAME ${name} COMMAND test_${name})

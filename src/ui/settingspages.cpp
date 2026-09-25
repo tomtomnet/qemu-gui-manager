@@ -6,20 +6,24 @@
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QDir>
+#include <QFileDialog>
 #include <QFileInfo>
 #include <QFontDatabase>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMap>
+#include <QMessageBox>
 #include <QPushButton>
 #include <QRadioButton>
 #include <QRegularExpression>
 #include <QSlider>
 #include <QSpinBox>
 #include <QSplitter>
+#include <QStandardItemModel>
 #include <QTableWidget>
 #include <QThread>
 #include <QTreeWidget>
@@ -27,9 +31,11 @@
 #include <QUrl>
 #include <QVBoxLayout>
 
+#include "core/firmware.h"
 #include "core/hostdevices.h"
 #include "core/paths.h"
 #include "core/qemuinfo.h"
+#include "core/vmhardware.h"
 #include "core/vmstore.h"
 #include "ui/argseditor.h"
 #include "ui/banner.h"
@@ -95,7 +101,9 @@ SystemPage::SystemPage(QWidget *parent)
       m_modelInfo(Widgets::hint()), m_machine(new QComboBox), m_machineInfo(Widgets::hint()),
       m_accel(new QComboBox), m_defaultQemu(new QRadioButton),
       m_ownQemu(new QRadioButton(tr("This &build:"))), m_qemuPath(new QLineEdit),
-      m_qemuInfo(Widgets::hint())
+      m_qemuInfo(Widgets::hint()), m_firmware(new QComboBox), m_firmwareInfo(Widgets::hint()),
+      m_bootMenu(new QCheckBox(tr("Show the boot &menu when the VM starts"))),
+      m_bootDevice(new QComboBox)
 {
     auto *layout = new QVBoxLayout(this);
     auto *form = Widgets::form();
@@ -192,7 +200,28 @@ SystemPage::SystemPage(QWidget *parent)
     form->addRow(Widgets::label(tr("&QEMU:"), m_defaultQemu), qemu);
     form->addRow(QString(), m_qemuInfo);
     layout->addLayout(form);
+
+    /* boot */
+    auto *boot = new QGroupBox(tr("Boot"));
+    auto *bootForm = Widgets::form();
+    m_firmware->setObjectName("firmware");
+    m_bootDevice->setObjectName("bootDevice");
+    m_bootMenu->setObjectName("bootMenu");
+    m_bootDevice->addItem(tr("The first bootable device, the firmware's default"),
+                          int(VmConfig::BootDevice::Default));
+    m_bootDevice->addItem(tr("The hard disk"), int(VmConfig::BootDevice::Disk));
+    m_bootDevice->addItem(tr("The CD/DVD drive"), int(VmConfig::BootDevice::Cdrom));
+    m_bootDevice->addItem(tr("The network (PXE)"), int(VmConfig::BootDevice::Network));
+    m_bootDevice->setToolTip(tr("Sets bootindex=1 on its device, which both SeaBIOS and "
+                                "UEFI follow"));
+    bootForm->addRow(tr("&Firmware:"), m_firmware);
+    bootForm->addRow(QString(), m_firmwareInfo);
+    bootForm->addRow(tr("&Start from:"), m_bootDevice);
+    bootForm->addRow(QString(), m_bootMenu);
+    boot->setLayout(bootForm);
+    layout->addWidget(boot);
     layout->addStretch();
+    connect(m_firmware, &QComboBox::currentIndexChanged, this, &SystemPage::describeFirmware);
 
     connect(qemuGroup, &QButtonGroup::buttonToggled, this, &SystemPage::updateQemu);
     connect(m_qemuPath, &QLineEdit::textChanged, this, &SystemPage::updateQemu);
@@ -314,11 +343,11 @@ void SystemPage::updateTopology()
 
 void SystemPage::load(const ArgsFile &args)
 {
-    const QString accel = UiConfig::accel(args);
+    const QString accel = VmConfig::accel(args);
 
     m_loadedMemory = VmConfig::memoryMiB(args);
     m_loadedCpus = VmConfig::cpus(args);
-    m_loadedMachine = UiConfig::machineType(args);
+    m_loadedMachine = VmConfig::machineType(args);
     m_loadedAccel = accel;
 
     m_memory->setMaximum(int(qMax<qint64>(m_memory->maximum(), m_loadedMemory)));
@@ -371,6 +400,7 @@ void SystemPage::load(const ArgsFile &args)
     }
     m_accel->setCurrentIndex(m_accel->findData(accel));
     describe();
+    loadBoot(args);
 }
 
 void SystemPage::save(ArgsFile &args)
@@ -420,23 +450,27 @@ void SystemPage::save(ArgsFile &args)
         m_model->setCurrentText(cpus.model);
     }
     if (!machine.isEmpty() && machine != m_loadedMachine) {
-        UiConfig::setMachineType(args, machine);
+        VmConfig::setMachineType(args, machine);
         m_loadedMachine = machine;
     }
     if (accel != m_loadedAccel) {
-        UiConfig::setAccel(args, accel);
+        VmConfig::setAccel(args, accel);
         m_loadedAccel = accel;
     }
     if (chosenQemu() != m_loadedQemu) {
         VmConfig::setQemuBinary(args, chosenQemu());
         m_loadedQemu = chosenQemu();
     }
+    saveBoot(args);
 }
 
 bool SystemPage::isModified() const
 {
     const QString machine = m_machine->currentText().trimmed();
 
+    if (bootModified()) {
+        return true;
+    }
     if (m_memory->value() != m_loadedMemory || m_cpus->value() != m_loadedCpus.count ||
         m_model->currentText().trimmed() != m_loadedCpus.model ||
         (!machine.isEmpty() && machine != m_loadedMachine) ||
@@ -448,6 +482,698 @@ bool SystemPage::isModified() const
     }
     return m_sockets->value() != m_loadedCpus.sockets ||
            m_cores->value() != m_loadedCpus.cores || m_threads->value() != m_loadedCpus.threads;
+}
+
+void SystemPage::loadBoot(const ArgsFile &args)
+{
+    using VmConfig::FirmwareKind;
+    const bool virt = m_loadedMachine.startsWith("virt");
+    const QList<VmConfig::Disk> disks = VmConfig::disks(args);
+    bool disk = false, cdrom = false, nic = false;
+
+    m_loadedFirmware = VmConfig::firmwareKind(args);
+    {
+        const QSignalBlocker block(m_firmware);
+        m_firmware->clear();
+        /* ARM's virt boots with UEFI only */
+        if (!virt) {
+            m_firmware->addItem(tr("BIOS (SeaBIOS), for old systems"), int(FirmwareKind::Bios));
+        } else if (m_loadedFirmware == FirmwareKind::Bios) {
+            m_firmware->addItem(tr("None"), int(FirmwareKind::Bios));
+        }
+        m_firmware->addItem(tr("UEFI"), int(FirmwareKind::Uefi));
+        if (!virt || FirmwareDb::find(true, m_loadedMachine)) {
+            m_firmware->addItem(tr("UEFI with Secure Boot"), int(FirmwareKind::UefiSecureBoot));
+        }
+        if (m_loadedFirmware == FirmwareKind::Custom) {
+            m_firmware->addItem(tr("Set by hand"), int(FirmwareKind::Custom));
+        }
+        m_firmware->setCurrentIndex(m_firmware->findData(int(m_loadedFirmware)));
+        m_firmware->setEnabled(m_loadedFirmware != FirmwareKind::Custom);
+    }
+
+    m_loadedBootMenu = VmConfig::bootMenu(args);
+    m_bootMenu->setChecked(m_loadedBootMenu);
+
+    for (const VmConfig::Disk &d : disks) {
+        (d.cdrom ? cdrom : disk) |= d.editable;
+    }
+    for (int i : args.indexesOf("device")) {
+        nic |= args.valueAt(i).has("netdev");
+    }
+    m_loadedBootDevice = VmConfig::firstBootDevice(args);
+    if (auto *model = qobject_cast<QStandardItemModel *>(m_bootDevice->model())) {
+        const bool present[] = {true, disk, cdrom, nic};
+        for (int i = 0; i < model->rowCount(); i++) {
+            model->item(i)->setEnabled(present[i] || i == int(m_loadedBootDevice));
+        }
+    }
+    m_bootDevice->setCurrentIndex(m_bootDevice->findData(int(m_loadedBootDevice)));
+    describeFirmware();
+}
+
+void SystemPage::saveBoot(ArgsFile &args)
+{
+    using VmConfig::FirmwareKind;
+    const auto kind = FirmwareKind(m_firmware->currentData().toInt());
+    const auto device = VmConfig::BootDevice(m_bootDevice->currentData().toInt());
+
+    if (kind != m_loadedFirmware && kind != FirmwareKind::Custom) {
+        if (kind == FirmwareKind::Bios) {
+            VmConfig::useBios(args);
+        } else if (const std::optional<Firmware> fw = FirmwareDb::find(
+                       kind == FirmwareKind::UefiSecureBoot, m_machine->currentText().trimmed())) {
+            /* copied into the VM folder when the dialog applies */
+            FirmwareDb::apply(args, *fw, m_staging.path());
+        }
+        m_loadedFirmware = kind;
+    }
+    if (m_bootMenu->isChecked() != m_loadedBootMenu) {
+        VmConfig::setBootMenu(args, m_bootMenu->isChecked());
+        m_loadedBootMenu = m_bootMenu->isChecked();
+    }
+    if (device != m_loadedBootDevice) {
+        VmConfig::setFirstBootDevice(args, device);
+        m_loadedBootDevice = device;
+    }
+}
+
+bool SystemPage::bootModified() const
+{
+    return m_firmware->currentData().toInt() != int(m_loadedFirmware) ||
+           m_bootMenu->isChecked() != m_loadedBootMenu ||
+           m_bootDevice->currentData().toInt() != int(m_loadedBootDevice);
+}
+
+void SystemPage::describeFirmware()
+{
+    using VmConfig::FirmwareKind;
+    const auto kind = FirmwareKind(m_firmware->currentData().toInt());
+
+    if (kind == FirmwareKind::Custom) {
+        m_firmwareInfo->setText(tr("The firmware is set by hand: change it on the Arguments "
+                                   "page."));
+    } else if ((kind == FirmwareKind::Uefi || kind == FirmwareKind::UefiSecureBoot) &&
+               !FirmwareDb::find(kind == FirmwareKind::UefiSecureBoot,
+                                 m_machine->currentText().trimmed())) {
+        m_firmwareInfo->setText(tr("No such UEFI firmware was found: install edk2-ovmf "
+                                   "(edk2-aarch64 on ARM)."));
+    } else if (kind != m_loadedFirmware) {
+        m_firmwareInfo->setText(tr("A system installed with UEFI needs UEFI, one installed "
+                                   "with BIOS needs BIOS: changing it may keep the installed "
+                                   "system from starting."));
+    } else if (kind == FirmwareKind::Bios) {
+        m_firmwareInfo->setText(QString());
+    } else {
+        m_firmwareInfo->setText(tr("The firmware and its variables are kept in the VM "
+                                   "folder."));
+    }
+}
+
+bool SystemPage::commit(const ArgsFile &args, const QString &vmDir, QString *error)
+{
+    const QDir staging(m_staging.path());
+
+    /* the firmware copies the arguments use; the VM's own variables stay */
+    for (const VmConfig::FileRef &ref : VmConfig::files(args)) {
+        const QString source = staging.filePath(ref.path);
+        const QString target = QDir(vmDir).filePath(ref.path);
+
+        if (QDir::isAbsolutePath(ref.path) || !QFileInfo::exists(source) ||
+            QFileInfo::exists(target)) {
+            continue;
+        }
+        if (!QFile::copy(source, target)) {
+            *error = tr("Cannot copy %1 into %2").arg(ref.path, vmDir);
+            return false;
+        }
+        QFile::setPermissions(target, QFile::permissions(target) | QFile::ReadOwner |
+                                          QFile::WriteOwner);
+    }
+    return true;
+}
+
+/* Display */
+
+DisplayPage::DisplayPage(QWidget *parent)
+    : SettingsPage(parent), m_custom(new Banner(Banner::Information)), m_kind(new QComboBox),
+      m_device(new QComboBox),
+      m_nativeContext(new QCheckBox(tr("DRM &native context: the guest uses the GPU through "
+                                       "its own driver"))),
+      m_venus(new QCheckBox(tr("&Vulkan through Venus"))), m_hostmem(new QSpinBox),
+      m_window(new QComboBox)
+{
+    auto *layout = new QVBoxLayout(this);
+    auto *form = Widgets::form();
+    auto *features = new QGroupBox(tr("3D acceleration"));
+    auto *featuresLayout = new QVBoxLayout(features);
+    auto *hostmemRow = new QHBoxLayout;
+    auto *hostmemLabel = Widgets::label(tr("GPU &memory window:"), m_hostmem);
+
+    m_kind->setObjectName("graphics");
+    m_device->setObjectName("gpuDevice");
+    m_nativeContext->setObjectName("nativeContext");
+    m_venus->setObjectName("venus");
+    m_hostmem->setObjectName("hostmem");
+    m_window->setObjectName("window");
+    m_hostmem->setRange(1, 256);
+    m_hostmem->setSuffix(tr(" GiB"));
+
+    form->addRow(tr("&Graphics:"), m_kind);
+    form->addRow(tr("&Card:"), m_device);
+    form->addRow(QString(), Widgets::hint(tr("A card with VGA shows the firmware and the boot "
+                                             "screens; a PCI-only card shows the system once "
+                                             "its driver starts.")));
+    form->addRow(tr("&Window:"), m_window);
+
+    hostmemRow->addWidget(hostmemLabel);
+    hostmemRow->addWidget(m_hostmem);
+    hostmemRow->addStretch();
+    featuresLayout->addWidget(m_nativeContext);
+    featuresLayout->addWidget(Widgets::hint(
+        tr("Much faster than virgl. It needs a virglrenderer built with native context for "
+           "the GPU of this computer, whose renderer depends on the GPU: Intel (Xe or i915), "
+           "AMD, Qualcomm, Apple (Asahi) or Arm Mali. File > Build QEMU builds one. The guest "
+           "needs native context support in Mesa too. With KVM, the accelerator gets "
+           "honor-guest-pat=on, which Intel GPUs need.")));
+    featuresLayout->addWidget(m_venus);
+    featuresLayout->addWidget(Widgets::hint(
+        tr("Vulkan in the guest through the Vulkan driver of this computer; it needs a "
+           "virglrenderer built with Venus.")));
+    featuresLayout->addLayout(hostmemRow);
+    featuresLayout->addWidget(Widgets::hint(
+        tr("The host memory the guest maps its GPU buffers into (hostmem, with blob=on).")));
+
+    layout->addWidget(m_custom);
+    layout->addLayout(form);
+    layout->addWidget(features);
+    layout->addStretch();
+
+    connect(m_kind, &QComboBox::currentIndexChanged, this, [this]() {
+        fillDevices();
+        update();
+    });
+    connect(m_nativeContext, &QCheckBox::toggled, this, &DisplayPage::update);
+    connect(m_venus, &QCheckBox::toggled, this, &DisplayPage::update);
+}
+
+QIcon DisplayPage::icon() const
+{
+    return Icons::themed({"video-display", "preferences-desktop-display"},
+                         QStyle::SP_DesktopIcon);
+}
+
+/* The cards of @kind, VGA first but on ARM's virt */
+static QStringList cardsOf(VmConfig::Graphics::Kind kind, bool virt)
+{
+    if (kind == VmConfig::Graphics::Accelerated) {
+        return virt ? QStringList{"virtio-gpu-gl-pci"}
+                    : QStringList{"virtio-vga-gl", "virtio-gpu-gl-pci"};
+    }
+    if (kind == VmConfig::Graphics::Virtio) {
+        return virt ? QStringList{"virtio-gpu-pci"} : QStringList{"virtio-vga", "virtio-gpu-pci"};
+    }
+    return {};
+}
+
+void DisplayPage::fillDevices()
+{
+    const auto kind = VmConfig::Graphics::Kind(m_kind->currentData().toInt());
+    QStringList cards = cardsOf(kind, m_virt);
+    const QSignalBlocker block(m_device);
+    /* the card as written, or its twin with or without OpenGL */
+    const QString preferred = cards.isEmpty()           ? QString()
+                              : kind == m_loaded.kind ? m_loaded.device
+                                                      : VmConfig::glCounterpart(m_loaded.device);
+
+    /* e.g. virtio-gpu-gl, as written */
+    if (!preferred.isEmpty() && !cards.contains(preferred)) {
+        cards.prepend(preferred);
+    }
+    m_device->clear();
+    for (const QString &card : std::as_const(cards)) {
+        m_device->addItem(VmConfig::isVgaDevice(card) ? tr("%1, with VGA").arg(card)
+                                                      : tr("%1, PCI only").arg(card),
+                          card);
+    }
+    if (!preferred.isEmpty()) {
+        m_device->setCurrentIndex(m_device->findData(preferred));
+    }
+}
+
+void DisplayPage::update()
+{
+    const auto kind = VmConfig::Graphics::Kind(m_kind->currentData().toInt());
+    const bool custom = m_loaded.kind == VmConfig::Graphics::Custom;
+    const bool accelerated = kind == VmConfig::Graphics::Accelerated;
+
+    m_kind->setEnabled(!custom);
+    m_device->setEnabled(!custom && m_device->count() > 1);
+    m_nativeContext->setEnabled(accelerated);
+    m_venus->setEnabled(accelerated);
+    m_hostmem->setEnabled(accelerated && (m_nativeContext->isChecked() || m_venus->isChecked()));
+}
+
+void DisplayPage::load(const ArgsFile &args)
+{
+    using Kind = VmConfig::Graphics::Kind;
+    const QSignalBlocker a(m_kind), b(m_nativeContext), c(m_venus), d(m_window);
+
+    m_loaded = VmConfig::graphics(args);
+    m_virt = VmConfig::machineType(args).startsWith("virt");
+
+    m_kind->clear();
+    m_kind->addItem(tr("3D accelerated: virtio-gpu with OpenGL"), int(Kind::Accelerated));
+    m_kind->addItem(tr("2D: virtio-gpu"), int(Kind::Virtio));
+    if (!m_virt) {
+        m_kind->addItem(tr("Standard VGA, for compatibility"), int(Kind::Standard));
+    }
+    m_kind->addItem(tr("None"), int(Kind::None));
+    if (m_loaded.kind == Kind::Custom) {
+        m_kind->addItem(tr("Set by hand: %1").arg(m_loaded.custom), int(Kind::Custom));
+    }
+    m_kind->setCurrentIndex(m_kind->findData(int(m_loaded.kind)));
+    fillDevices();
+
+    m_nativeContext->setChecked(m_loaded.nativeContext);
+    m_venus->setChecked(m_loaded.venus);
+    m_loadedHostmemGiB = int(qMax<qint64>((m_loaded.hostmemMiB + 1023) / 1024, 4));
+    m_hostmem->setValue(m_loadedHostmemGiB);
+
+    m_window->clear();
+    m_window->addItem(tr("SDL, with the qemu-gui menu"), "sdl");
+    m_window->addItem(tr("GTK"), "gtk");
+    m_window->addItem(tr("None: no window"), "none");
+    if (m_loaded.display.isEmpty()) {
+        m_window->addItem(tr("QEMU's default"), QString());
+    } else if (m_window->findData(m_loaded.display) < 0) {
+        m_window->addItem(m_loaded.display, m_loaded.display);
+    }
+    m_window->setCurrentIndex(m_window->findData(m_loaded.display));
+
+    m_custom->setText(tr("The graphics of this VM are set by hand (%1): change them on the "
+                         "Arguments page. The window can change here.")
+                          .arg(m_loaded.custom));
+    m_custom->setVisible(m_loaded.kind == Kind::Custom);
+    update();
+}
+
+VmConfig::Graphics DisplayPage::shown() const
+{
+    VmConfig::Graphics g = m_loaded;
+
+    g.kind = VmConfig::Graphics::Kind(m_kind->currentData().toInt());
+    g.device = m_device->count() > 0 ? m_device->currentData().toString() : QString();
+    g.nativeContext = g.kind == VmConfig::Graphics::Accelerated && m_nativeContext->isChecked();
+    g.venus = g.kind == VmConfig::Graphics::Accelerated && m_venus->isChecked();
+    /* as written, unless changed */
+    if (m_hostmem->value() != m_loadedHostmemGiB) {
+        g.hostmemMiB = qint64(m_hostmem->value()) * 1024;
+    }
+    g.display = m_window->currentData().toString();
+    return g;
+}
+
+void DisplayPage::save(ArgsFile &args)
+{
+    VmConfig::setGraphics(args, shown());
+    load(args);
+}
+
+bool DisplayPage::isModified() const
+{
+    const VmConfig::Graphics g = shown();
+
+    return g.kind != m_loaded.kind || (!g.device.isEmpty() && g.device != m_loaded.device) ||
+           g.nativeContext != m_loaded.nativeContext || g.venus != m_loaded.venus ||
+           ((g.nativeContext || g.venus) && m_hostmem->value() != m_loadedHostmemGiB) ||
+           g.display != m_loaded.display;
+}
+
+/* Storage */
+
+StoragePage::StoragePage(const QString &vmDir, QWidget *parent)
+    : SettingsPage(parent), m_vmDir(vmDir), m_table(new QTableWidget(0, 4)),
+      m_disc(new QPushButton(tr("Choose &Disc…"))), m_eject(new QPushButton(tr("&Eject"))),
+      m_resize(new QPushButton(tr("Si&ze…"))), m_remove(new QPushButton(tr("&Remove")))
+{
+    auto *layout = new QVBoxLayout(this);
+    auto *buttons = new QHBoxLayout;
+    auto *addDisk = new QPushButton(tr("Add &Hard Disk…"));
+    auto *addCdrom = new QPushButton(tr("Add &CD/DVD Drive"));
+
+    m_table->setObjectName("disks");
+    m_table->setHorizontalHeaderLabels({tr("Type"), tr("File"), tr("Bus"), tr("Note")});
+    m_table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    m_table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    m_table->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+    m_table->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+    m_table->verticalHeader()->hide();
+    m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_table->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_table->setWordWrap(false);
+
+    addDisk->setIcon(Icons::themed({"drive-harddisk", "list-add"}, QStyle::SP_DriveHDIcon));
+    addCdrom->setIcon(Icons::themed({"drive-optical", "list-add"}, QStyle::SP_DriveCDIcon));
+    m_remove->setIcon(Icons::themed({"list-remove", "edit-delete"}, QStyle::SP_TrashIcon));
+    buttons->addWidget(addDisk);
+    buttons->addWidget(addCdrom);
+    buttons->addWidget(m_disc);
+    buttons->addWidget(m_eject);
+    buttons->addWidget(m_resize);
+    buttons->addWidget(m_remove);
+    buttons->addStretch();
+
+    layout->addWidget(Widgets::note(tr("The disks and CD/DVD drives of the VM. New disks are "
+                                       "created in the VM folder when you apply; removing a "
+                                       "disk takes it out of the VM, but its file stays.")));
+    layout->addWidget(m_table, 1);
+    layout->addLayout(buttons);
+
+    connect(addDisk, &QPushButton::clicked, this, &StoragePage::addDisk);
+    connect(addCdrom, &QPushButton::clicked, this, &StoragePage::addCdrom);
+    connect(m_disc, &QPushButton::clicked, this, &StoragePage::chooseDisc);
+    connect(m_resize, &QPushButton::clicked, this, &StoragePage::resize);
+    connect(m_eject, &QPushButton::clicked, this, [this]() {
+        if (const int i = current(); i >= 0) {
+            m_entries[i].file.clear();
+            fill();
+        }
+    });
+    connect(m_remove, &QPushButton::clicked, this, [this]() {
+        const int i = current();
+        if (i < 0) {
+            return;
+        }
+        if (m_entries[i].disk.line < 0) {
+            m_entries.removeAt(i);
+        } else {
+            m_entries[i].removed = true;
+        }
+        fill();
+    });
+    connect(m_table, &QTableWidget::currentCellChanged, this, &StoragePage::updateButtons);
+    connect(m_table, &QTableWidget::cellDoubleClicked, this, [this]() {
+        if (m_disc->isEnabled()) {
+            chooseDisc();
+        } else if (m_resize->isEnabled()) {
+            resize();
+        }
+    });
+}
+
+QIcon StoragePage::icon() const
+{
+    return Icons::themed({"drive-harddisk"}, QStyle::SP_DriveHDIcon);
+}
+
+void StoragePage::load(const ArgsFile &args)
+{
+    m_virt = VmConfig::machineType(args).startsWith("virt");
+    m_entries.clear();
+    for (const VmConfig::Disk &d : VmConfig::disks(args)) {
+        m_entries << Entry{d, d.file, m_pending.value(d.file), false};
+    }
+    fill();
+}
+
+void StoragePage::save(ArgsFile &args)
+{
+    QList<VmConfig::Disk> removed;
+
+    /* discs, which move no line */
+    for (const Entry &e : std::as_const(m_entries)) {
+        if (e.disk.line >= 0 && !e.removed && e.disk.cdrom && e.file != e.disk.file) {
+            VmConfig::setDisc(args, e.disk, e.file);
+        }
+    }
+    /* then the removals, from the bottom */
+    for (const Entry &e : std::as_const(m_entries)) {
+        if (e.removed) {
+            removed << e.disk;
+        }
+    }
+    std::sort(removed.begin(), removed.end(), [](const auto &a, const auto &b) {
+        return qMax(a.line, a.deviceLine) > qMax(b.line, b.deviceLine);
+    });
+    for (const VmConfig::Disk &d : std::as_const(removed)) {
+        VmConfig::removeDisk(args, d);
+    }
+    for (const Entry &e : std::as_const(m_entries)) {
+        if (e.disk.line >= 0 || e.removed) {
+            continue;
+        }
+        if (e.disk.cdrom) {
+            VmConfig::addCdrom(args, e.file);
+        } else {
+            VmConfig::addDisk(args, e.file, e.disk.bus);
+            if (e.newGiB > 0) {
+                m_pending[e.file] = e.newGiB;
+            }
+        }
+    }
+    load(args);
+}
+
+bool StoragePage::isModified() const
+{
+    for (const Entry &e : m_entries) {
+        if (e.removed || e.disk.line < 0 || e.file != e.disk.file ||
+            (e.newGiB > 0 && e.newGiB != m_pending.value(e.file))) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool StoragePage::commit(const ArgsFile &args, const QString &vmDir, QString *error)
+{
+    QStringList used;
+
+    for (const VmConfig::Disk &d : VmConfig::disks(args)) {
+        used << d.file;
+    }
+    for (auto it = m_pending.begin(); it != m_pending.end();) {
+        const QString path = QDir(vmDir).filePath(it.key());
+        if (used.contains(it.key()) && !QFileInfo::exists(path) &&
+            !createDiskImage(path, qint64(it.value()) << 30, error)) {
+            return false;
+        }
+        it = m_pending.erase(it);
+    }
+    return true;
+}
+
+int StoragePage::current() const
+{
+    const int row = m_table->currentRow();
+    int shown = -1;
+
+    for (int i = 0; i < m_entries.size(); i++) {
+        if (!m_entries[i].removed && ++shown == row) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+void StoragePage::fill()
+{
+    const int row = m_table->currentRow();
+    int n = 0;
+
+    m_table->setRowCount(0);
+    for (const Entry &e : std::as_const(m_entries)) {
+        if (e.removed) {
+            continue;
+        }
+        const QString path = QDir(m_vmDir).absoluteFilePath(e.file);
+        QString note;
+
+        if (e.newGiB > 0) {
+            note = tr("New, %1 GiB: created when applied").arg(e.newGiB);
+        } else if (!e.disk.editable) {
+            note = tr("Set by hand: see the Arguments page");
+        } else if (!e.file.isEmpty() && !QFileInfo::exists(path)) {
+            note = tr("Not found");
+        } else if (e.disk.cdrom && e.file.isEmpty()) {
+            note = tr("Empty");
+        }
+        m_table->insertRow(n);
+        m_table->setItem(n, 0, new QTableWidgetItem(
+                                   Icons::themed({e.disk.cdrom ? "drive-optical" : "drive-harddisk"},
+                                                 e.disk.cdrom ? QStyle::SP_DriveCDIcon
+                                                              : QStyle::SP_DriveHDIcon),
+                                   e.disk.cdrom ? tr("CD/DVD") : tr("Hard disk")));
+        m_table->setItem(n, 1, new QTableWidgetItem(QDir::toNativeSeparators(e.file)));
+        m_table->setItem(n, 2, new QTableWidgetItem(UiConfig::busName(e.disk.bus)));
+        m_table->setItem(n, 3, new QTableWidgetItem(note));
+        m_table->item(n, 1)->setToolTip(path);
+        if (!e.disk.editable) {
+            for (int c = 0; c < 4; c++) {
+                m_table->item(n, c)->setFlags(Qt::ItemIsSelectable);
+            }
+        }
+        n++;
+    }
+    if (n > 0) {
+        m_table->setCurrentCell(qBound(0, row, n - 1), 0);
+    }
+    updateButtons();
+}
+
+void StoragePage::updateButtons()
+{
+    const int i = current();
+    const bool editable = i >= 0 && m_entries[i].disk.editable;
+    const bool cdrom = editable && m_entries[i].disk.cdrom;
+
+    m_disc->setEnabled(cdrom);
+    m_eject->setEnabled(cdrom && !m_entries[i].file.isEmpty());
+    m_resize->setEnabled(editable && m_entries[i].newGiB > 0);
+    m_remove->setEnabled(editable);
+}
+
+QString StoragePage::newDiskName() const
+{
+    const QDir dir(m_vmDir);
+
+    for (int n = 1;; n++) {
+        const QString name = n == 1 ? QString("disk.qcow2") : QString("disk%1.qcow2").arg(n);
+        bool used = dir.exists(name) || m_pending.contains(name);
+        for (const Entry &e : m_entries) {
+            used |= e.file == name;
+        }
+        if (!used) {
+            return name;
+        }
+    }
+}
+
+void StoragePage::addDisk()
+{
+    QDialog dialog(this);
+    auto *layout = new QVBoxLayout(&dialog);
+    auto *form = Widgets::form();
+    auto *newRow = new QHBoxLayout;
+    auto *existingRow = new QHBoxLayout;
+    auto *create = new QRadioButton(tr("Create a &new disk of"));
+    auto *size = new QSpinBox;
+    auto *existing = new QRadioButton(tr("&Use an existing disk image:"));
+    auto *path = new QLineEdit;
+    auto *bus = new QComboBox;
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+    auto *group = new QButtonGroup(&dialog);
+
+    dialog.setWindowTitle(tr("Add a Hard Disk"));
+    size->setRange(1, 65536);
+    size->setValue(64);
+    size->setSuffix(tr(" GiB"));
+    group->addButton(create);
+    group->addButton(existing);
+    create->setChecked(true);
+    newRow->addWidget(create);
+    newRow->addWidget(size);
+    newRow->addStretch();
+    existingRow->addWidget(existing);
+    existingRow->addWidget(Widgets::browseRow(path, tr("Disk Image"),
+                                              tr("Disk images (*.qcow2 *.img *.raw *.vmdk "
+                                                 "*.vdi *.vhdx *.vhd);;All files (*)")),
+                           1);
+    bus->addItem(tr("VirtIO: the fastest, Windows needs its drivers"),
+                 int(VmConfig::Disk::Virtio));
+    /* virt has no SATA */
+    if (m_virt) {
+        bus->addItem(tr("SCSI (virtio-scsi)"), int(VmConfig::Disk::Scsi));
+    } else {
+        bus->addItem(tr("SATA: works without drivers, e.g. on Windows"),
+                     int(VmConfig::Disk::Sata));
+    }
+    form->addRow(tr("Disk:"), newRow);
+    form->addRow(QString(), existingRow);
+    form->addRow(tr("&Bus:"), bus);
+    layout->addLayout(form);
+    layout->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    auto update = [&]() {
+        size->setEnabled(create->isChecked());
+        path->parentWidget()->setEnabled(existing->isChecked());
+    };
+    connect(group, &QButtonGroup::buttonToggled, &dialog, update);
+    update();
+    dialog.resize(560, dialog.sizeHint().height());
+
+    while (dialog.exec() == QDialog::Accepted) {
+        Entry e;
+        e.disk.cdrom = false;
+        e.disk.bus = VmConfig::Disk::Bus(bus->currentData().toInt());
+        if (create->isChecked()) {
+            e.file = newDiskName();
+            e.newGiB = size->value();
+        } else if (QFileInfo(path->text().trimmed()).isFile()) {
+            e.file = QFileInfo(path->text().trimmed()).absoluteFilePath();
+        } else {
+            QMessageBox::information(&dialog, dialog.windowTitle(),
+                                     tr("Choose the disk image to use."));
+            continue;
+        }
+        m_entries << e;
+        fill();
+        m_table->setCurrentCell(m_table->rowCount() - 1, 0);
+        return;
+    }
+}
+
+void StoragePage::addCdrom()
+{
+    Entry e;
+
+    e.disk.cdrom = true;
+    e.disk.bus = m_virt ? VmConfig::Disk::Scsi : VmConfig::Disk::Sata;
+    m_entries << e;
+    fill();
+    m_table->setCurrentCell(m_table->rowCount() - 1, 0);
+    chooseDisc();
+}
+
+void StoragePage::chooseDisc()
+{
+    const int i = current();
+
+    if (i < 0) {
+        return;
+    }
+    const QString start = m_entries[i].file.isEmpty()
+                              ? QDir::homePath()
+                              : QFileInfo(QDir(m_vmDir).absoluteFilePath(m_entries[i].file)).path();
+    const QString iso = QFileDialog::getOpenFileName(this, tr("Disc Image"), start,
+                                                     tr("Disc images (*.iso);;All files (*)"));
+    if (!iso.isEmpty()) {
+        m_entries[i].file = iso;
+        fill();
+    }
+}
+
+void StoragePage::resize()
+{
+    const int i = current();
+    bool ok = false;
+
+    if (i < 0 || m_entries[i].newGiB <= 0) {
+        return;
+    }
+    const int size = QInputDialog::getInt(this, tr("New Disk"), tr("Size in GiB:"),
+                                          m_entries[i].newGiB, 1, 65536, 1, &ok);
+    if (ok) {
+        m_entries[i].newGiB = size;
+        if (m_entries[i].disk.line >= 0) {
+            /* added already: the size waits with the name */
+            m_pending[m_entries[i].file] = size;
+        }
+        fill();
+    }
 }
 
 /* Shared folders */

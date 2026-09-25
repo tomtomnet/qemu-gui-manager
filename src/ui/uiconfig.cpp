@@ -14,129 +14,23 @@ static QString tr(const char *text)
     return QCoreApplication::translate("UiConfig", text);
 }
 
-/* Inserts a -@name line after the last -@after line, else at the top */
-static int insertAfter(ArgsFile &args, const QStringList &after, const QString &name,
-                       const QString &value)
+QString busName(VmConfig::Disk::Bus bus)
 {
-    ArgsFile::Line line;
-    int at = 0;
-
-    for (const QString &a : after) {
-        const QList<int> found = args.indexesOf(a);
-        if (!found.isEmpty()) {
-            at = qMax(at, found.last() + 1);
-        }
+    switch (bus) {
+    case VmConfig::Disk::Virtio:
+        return "virtio";
+    case VmConfig::Disk::Sata:
+        return tr("SATA");
+    case VmConfig::Disk::Scsi:
+        return tr("SCSI");
+    case VmConfig::Disk::Nvme:
+        return tr("NVMe");
+    case VmConfig::Disk::Usb:
+        return tr("USB");
+    case VmConfig::Disk::Other:
+        break;
     }
-    if (at == 0) {
-        /* after the comments at the top */
-        while (at < args.lines.size() && args.lines[at].kind == ArgsFile::Line::Comment) {
-            at++;
-        }
-    }
-    line.kind = ArgsFile::Line::Option;
-    line.name = name;
-    line.value = value;
-    args.lines.insert(at, line);
-    return at;
-}
-
-QString machineType(const ArgsFile &args)
-{
-    QString type;
-
-    for (int i : args.indexesOf("machine")) {
-        const OptionValue v = args.valueAt(i);
-        if (!v.implied().isEmpty()) {
-            type = v.implied();
-        } else if (v.has("type")) {
-            type = v.get("type");
-        }
-    }
-    return type;
-}
-
-void setMachineType(ArgsFile &args, const QString &type)
-{
-    const QList<int> machines = args.indexesOf("machine");
-    int target = -1;
-
-    for (int i : machines) {
-        const OptionValue v = args.valueAt(i);
-        if (!v.implied().isEmpty() || v.has("type")) {
-            target = i;
-        }
-    }
-    if (target < 0 && !machines.isEmpty()) {
-        target = machines.first();
-    }
-    if (target < 0) {
-        if (!type.isEmpty()) {
-            insertAfter(args, {"name"}, "machine", type);
-        }
-        return;
-    }
-
-    OptionValue v = args.valueAt(target);
-    if (v.implied().isEmpty() && v.has("type")) {
-        v.set("type", type);
-    } else {
-        v.setImplied(type);
-    }
-    args.setValueAt(target, v);
-}
-
-QString accel(const ArgsFile &args)
-{
-    const int a = args.indexOf("accel");
-    QString value;
-
-    if (a >= 0) {
-        const OptionValue v = args.valueAt(a);
-        return v.implied().isEmpty() ? v.get("accel") : v.implied();
-    }
-    for (int i : args.indexesOf("machine")) {
-        const OptionValue v = args.valueAt(i);
-        if (v.has("accel")) {
-            value = v.get("accel");
-        }
-    }
-    if (value.isEmpty() && args.indexOf("enable-kvm") >= 0) {
-        value = "kvm";
-    }
-    return value;
-}
-
-void setAccel(ArgsFile &args, const QString &accel)
-{
-    const int a = args.indexOf("accel");
-
-    if (a >= 0) {
-        OptionValue v = args.valueAt(a);
-        if (v.implied().isEmpty() && v.has("accel")) {
-            v.set("accel", accel);
-        } else {
-            v.setImplied(accel);
-        }
-        args.setValueAt(a, v);
-        return;
-    }
-    for (int i : args.indexesOf("machine")) {
-        OptionValue v = args.valueAt(i);
-        if (v.has("accel")) {
-            v.set("accel", accel);
-            args.setValueAt(i, v);
-            return;
-        }
-    }
-    if (args.indexOf("enable-kvm") >= 0) {
-        if (accel == "kvm") {
-            return;
-        }
-        args.removeAll("enable-kvm");
-    }
-    if (!accel.isEmpty()) {
-        insertAfter(args, {"name", "machine"}, "accel", accel);
-    }
+    return tr("other");
 }
 
 static bool secureFlash(const ArgsFile &args)
@@ -181,54 +75,6 @@ QString firmwareSummary(const ArgsFile &args)
         return tr("Firmware file %1").arg(QFileInfo(args.lines[bios].value).fileName());
     }
     return tr("BIOS (SeaBIOS)");
-}
-
-QList<Disk> disks(const ArgsFile &args)
-{
-    static const QStringList hd = {"hda", "hdb", "hdc", "hdd"};
-    QList<Disk> list;
-
-    for (int i = 0; i < args.lines.size(); i++) {
-        const ArgsFile::Line &line = args.lines[i];
-        if (line.kind != ArgsFile::Line::Option) {
-            continue;
-        }
-        const OptionValue v(line.value);
-        Disk d;
-
-        if (line.name == "drive") {
-            if (v.get("if") == "pflash") {
-                continue;
-            }
-            d.file = v.get("file");
-            d.cdrom = v.get("media") == "cdrom";
-            d.interface = v.get("if");
-            if (d.interface == "none" && v.has("id")) {
-                /* the device that uses the drive */
-                d.interface.clear();
-                for (int j : args.indexesOf("device")) {
-                    const OptionValue dev = args.valueAt(j);
-                    if (dev.get("drive") == v.get("id")) {
-                        d.interface = dev.implied();
-                        d.cdrom |= dev.implied().endsWith("-cd");
-                    }
-                }
-            }
-        } else if (hd.contains(line.name)) {
-            d.file = line.value;
-            d.interface = "ide";
-        } else if (line.name == "cdrom") {
-            d.file = line.value;
-            d.cdrom = true;
-            d.interface = "ide";
-        } else if (line.name == "blockdev" && v.has("filename")) {
-            d.file = v.get("filename");
-        } else {
-            continue;
-        }
-        list << d;
-    }
-    return list;
 }
 
 QStringList devicesOf(const ArgsFile &args, const QString &category,

@@ -6,6 +6,7 @@
 #include <QStringList>
 
 #include "core/argsfile.h"
+#include "core/vmhardware.h"
 
 struct QemuInfo;
 
@@ -15,23 +16,11 @@ struct QemuInfo;
  */
 namespace UiConfig {
 
-/* The type of the last -machine that has one, e.g. q35 */
-QString machineType(const ArgsFile &args);
-void setMachineType(ArgsFile &args, const QString &type);
-
-/* -accel, -machine accel= or -enable-kvm; empty when unset (TCG) */
-QString accel(const ArgsFile &args);
-void setAccel(ArgsFile &args, const QString &accel);
+/* virtio, SATA, SCSI... */
+QString busName(VmConfig::Disk::Bus bus);
 
 /* e.g. "UEFI (OVMF_CODE_4M.qcow2)", "BIOS" */
 QString firmwareSummary(const ArgsFile &args);
-
-struct Disk {
-    QString file;
-    bool cdrom = false;
-    QString interface;      // virtio, ide, ...; empty when unknown
-};
-QList<Disk> disks(const ArgsFile &args);
 
 /* The drivers of the -device lines in @category (e.g. "Display devices"),
    by the QEMU documentation when loaded, else by known names */
