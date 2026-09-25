@@ -28,6 +28,7 @@
 #include "core/vmconfig.h"
 #include "core/vmrunner.h"
 #include "core/vmstore.h"
+#include "ui/clonedialog.h"
 #include "ui/icons.h"
 #include "ui/importdialog.h"
 #include "ui/memorymonitor.h"
@@ -221,7 +222,7 @@ MainWindow::MainWindow(VmStore *store, QWidget *parent)
         menu.addSeparator();
         menu.addActions({m_settings, m_log, m_folder, m_command});
         menu.addSeparator();
-        menu.addAction(m_remove);
+        menu.addActions({m_clone, m_remove});
         menu.exec(m_list->viewport()->mapToGlobal(pos));
     });
     connect(m_details, &VmDetails::showLog, this, &MainWindow::showLog);
@@ -282,6 +283,9 @@ void MainWindow::createActions()
     m_forceOff = action(tr("&Force Off"), {"process-stop"}, QStyle::SP_BrowserStop, {},
                         &MainWindow::forceOff);
     m_forceOff->setToolTip(tr("Stop the VM at once, as when pulling the plug"));
+    m_clone = action(tr("&Clone…"), {"edit-copy"}, QStyle::SP_FileDialogNewFolder, {},
+                     &MainWindow::cloneVm);
+    m_clone->setToolTip(tr("A new VM with the same settings and copies of the disks"));
     m_remove = action(tr("Re&move…"), {"edit-delete", "user-trash"}, QStyle::SP_TrashIcon,
                       QKeySequence::Delete, &MainWindow::remove);
     m_log = action(tr("Show &Log"), {"text-x-generic", "document-preview"},
@@ -331,7 +335,7 @@ void MainWindow::createActions()
     machine->addSeparator();
     machine->addActions({m_log, m_folder, m_command});
     machine->addSeparator();
-    machine->addAction(m_remove);
+    machine->addActions({m_clone, m_remove});
 
     QMenu *help = menuBar()->addMenu(tr("&Help"));
     help->addAction(m_reference);
@@ -536,6 +540,7 @@ void MainWindow::updateActions()
     m_shutDown->setEnabled(vm && state == VmRunner::State::Running);
     m_reset->setEnabled(vm && (state == VmRunner::State::Running || paused));
     m_forceOff->setEnabled(vm && state != VmRunner::State::Stopped);
+    m_clone->setEnabled(vm && state == VmRunner::State::Stopped);
     m_remove->setEnabled(vm && state == VmRunner::State::Stopped);
     m_log->setEnabled(vm && QFileInfo::exists(vm->runner()->logPath()));
     m_folder->setEnabled(vm);
@@ -712,6 +717,19 @@ void MainWindow::forceOff()
                    "unsaved work."),
                 tr("&Force Off"))) {
         vm->runner()->forceOff();
+    }
+}
+
+void MainWindow::cloneVm()
+{
+    Vm *vm = current();
+
+    if (!vm || vm->runner()->isActive()) {
+        return;
+    }
+    CloneDialog dialog(m_store, vm, this);
+    if (dialog.exec() == QDialog::Accepted && dialog.clone()) {
+        select(dialog.clone()->id());
     }
 }
 

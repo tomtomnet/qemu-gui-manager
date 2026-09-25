@@ -32,6 +32,9 @@ fork whose SDL window has a menu, but it runs any `qemu-system-x86_64`.
   model and backend of the QEMU you run, searchable, with an Insert button.
   When QEMU runs from a build tree, it includes the full documentation from
   `qemu-options.hx`.
+- Clone a VM, as virt-manager does: a new VM with the same settings and
+  copies of its disks and firmware, instant on btrfs and XFS; CD/DVD images
+  stay shared, and the network cards get new addresses.
 - Import a launch script: the manager takes the QEMU command out of it.
 - A warning in the status bar when the running VMs could take more memory
   than is free, before the kernel has to kill one.

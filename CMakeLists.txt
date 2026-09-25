@@ -31,6 +31,8 @@ qt_add_library(qgm_core STATIC
     src/core/qmpclient.cpp
     src/core/qmpclient.h
     src/core/vmconfig.cpp
+    src/core/vmcloner.cpp
+    src/core/vmcloner.h
     src/core/vmconfig.h
     src/core/vmhardware.cpp
     src/core/vmhardware.h
@@ -52,6 +54,8 @@ qt_add_executable(qemu-gui-manager
     src/ui/argseditor.h
     src/ui/banner.cpp
     src/ui/banner.h
+    src/ui/clonedialog.cpp
+    src/ui/clonedialog.h
     src/ui/icons.cpp
     src/ui/icons.h
     src/ui/importdialog.cpp
@@ -112,6 +116,7 @@ if(BUILD_TESTING)
             qemubuilder
             qemuinfo
             qmpclient
+            vmcloner
             vmconfig
             vmhardware
             vmrunner

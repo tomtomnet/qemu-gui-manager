@@ -57,6 +57,7 @@ private:
     void shutDown();
     void reset();
     void forceOff();
+    void cloneVm();
     void remove();
     void showLog();
     void showCommandLine();
@@ -87,6 +88,7 @@ private:
     QAction *m_shutDown;
     QAction *m_reset;
     QAction *m_forceOff;
+    QAction *m_clone;
     QAction *m_remove;
     QAction *m_log;
     QAction *m_folder;
