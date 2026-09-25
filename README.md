@@ -79,6 +79,34 @@ Choose the QEMU binary in File > Preferences. It defaults to the
 - QEMU runs in the VM folder, so relative paths, like `disk.qcow2` above,
   point into it.
 
+## Building QEMU and virglrenderer
+
+File > Build QEMU downloads [qemu-gui](https://github.com/tomtomnet/qemu-gui)
+(or takes your own checkout), builds just the emulator and `qemu-img`, and
+makes the result the QEMU of your VMs. It needs QEMU's build dependencies:
+`sudo dnf builddep qemu`.
+
+It can also build virglrenderer, for 3D acceleration with DRM native
+context, which lets the guest drive the host GPU through its own driver:
+
+- Fedora's virglrenderer has no native context renderer at all. Choose the
+  ones you want: Intel Xe, Intel i915, AMD, and Venus for Vulkan.
+- Xe needs a patch that isn't upstream yet, from
+  [xe-native-context-enablement](https://github.com/cmspam/xe-native-context-enablement).
+  The window adds it when you tick Xe. The guest needs that repository's
+  Mesa patch too.
+- The patches go on upstream virglrenderer, or on the newest release they
+  apply to.
+- virglrenderer installs into the manager's data folder, and the QEMU it
+  builds loads it from there. The system's virglrenderer stays as it is, and
+  a rebuilt virglrenderer takes effect at the next start of a VM. The window
+  shows which library QEMU loads.
+
+This needs virglrenderer's build dependencies too:
+`sudo dnf builddep virglrenderer`. A VM then uses native context with
+`-device virtio-vga-gl,blob=on,hostmem=4G,drm_native_context=on`, and with
+`-accel kvm,honor-guest-pat=on` on Intel.
+
 ## Shared folders
 
 For each `#share`, the manager starts a `virtiofsd` as you, and adds the
