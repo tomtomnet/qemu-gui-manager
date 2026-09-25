@@ -147,9 +147,13 @@ private slots:
                                QemuBuilder::defaultConfigureArgs()};
         QemuBuilder b;
         QSignalSpy progress(&b, &QemuBuilder::progress);
+        QSignalSpy output(&b, &QemuBuilder::output);
+        const QString upToDate =
+            QFileInfo(QemuBuilder::binary(src)).fileName() + " was up to date";
 
         /* clone, configure, compile */
         QCOMPARE(build(b, o), "");
+        QVERIFY(!log(output).contains(upToDate));
         QVERIFY(QFileInfo(QemuBuilder::binary(src)).exists());
         QCOMPARE(configureRuns(), 1);
         QCOMPARE(QemuBuilder::builtCommit(src), git(src, {"rev-parse", "HEAD"}).trimmed());
@@ -163,9 +167,12 @@ private slots:
         marker.close();
         QVERIFY(run(m_tmp.filePath("remote"), {"add", "NEWS"}));
         QVERIFY(run(m_tmp.filePath("remote"), {"commit", "-q", "-m", "v2"}));
+        output.clear();
         QCOMPARE(build(b, o), "");
         QVERIFY(QFileInfo::exists(src + "/NEWS"));
         QCOMPARE(configureRuns(), 1);
+        /* the stand-in's binaries depend on nothing: ninja had nothing to do */
+        QVERIFY2(log(output).contains(upToDate), qPrintable(log(output)));
         /* the new one */
         QCOMPARE(QemuBuilder::builtCommit(src), git(src, {"rev-parse", "HEAD"}).trimmed());
         QCOMPARE(QemuBuilder::builtCommit(src),

@@ -308,7 +308,7 @@ void QemuBuilder::start(const Options &options)
     }
     m_steps << Step{tr("Compiling"), "ninja",
                     {"-j", QString::number(jobs), Paths::qemuSystemName(), "qemu-img"},
-                    build, false, env};
+                    build, false, env, {}, binary(options.sourceDir)};
     runNext();
 }
 
@@ -401,6 +401,7 @@ void QemuBuilder::runNext()
                                              : step.shown) + '\n');
 
     m_line.clear();
+    m_productTime = step.product.isEmpty() ? QDateTime() : QFileInfo(step.product).lastModified();
     m_process = new QProcess(this);
     m_process->setProcessChannelMode(QProcess::MergedChannels);
     m_process->setWorkingDirectory(step.dir);
@@ -435,6 +436,11 @@ void QemuBuilder::runNext()
         if (status != QProcess::NormalExit || code != 0) {
             emit finished(tr("%1 failed").arg(step.description));
             return;
+        }
+        /* ninja stops quietly after its first line ("[1/7] Generating qemu-version.h") */
+        if (m_productTime.isValid() && QFileInfo(step.product).lastModified() == m_productTime) {
+            emit output(tr("%1 was up to date: nothing to compile.\n")
+                            .arg(QFileInfo(step.product).fileName()));
         }
         if (step.configure) {
             QFile stamp(buildDir(m_options.sourceDir) + kStamp);

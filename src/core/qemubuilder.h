@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #pragma once
 
+#include <QDateTime>
 #include <QObject>
 #include <QStringList>
 
@@ -113,6 +114,7 @@ private:
         bool configure = false;
         QStringList env = {};       // NAME=value
         QString shown = {};         // for the log, if not the program and args
+        QString product = {};       // a file it makes: unchanged, it had nothing to do
     };
 
     void addVirglSteps(const Virgl &virgl, int jobs);
@@ -120,6 +122,7 @@ private:
     void parseProgress(const QString &text);
 
     QList<Step> m_steps;
+    QDateTime m_productTime;        // of the running step's product, before it
     Options m_options;
     QStringList m_configureArgs;    // with those virglrenderer adds
     QProcess *m_process = nullptr;
