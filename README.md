@@ -41,16 +41,13 @@ fork whose SDL window has a menu, but it runs any `qemu-system-x86_64`.
 - Snapshots, in a tab of their own: take one, go back to one, start the VM
   from one or delete one. Taken while the VM runs, a snapshot keeps its
   running state too.
-- Clone a VM, as virt-manager does: a new VM with the same settings and
-  copies of its disks and firmware, instant on btrfs and XFS; CD/DVD images
-  stay shared, and the network cards get new addresses.
+- Clone a VM: a new VM with the same settings and copies of its disks
+  and firmware; CD/DVD images stay shared, and the network cards
+  get new addresses.
 - Import a launch script: the manager takes the QEMU command out of it.
-- A warning in the status bar when the running VMs could take more memory
-  than is free, before the kernel has to kill one.
 - A different QEMU build per VM, if one needs it.
 - An Updates button in the status bar when qemu-gui-manager, or the qemu-gui
-  QEMU that File > Build QEMU builds, has new commits on GitHub, see
-  [Updates](#updates).
+  QEMU that File > Build QEMU builds, has new commits on GitHub.
 
 ## Build (Fedora)
 
@@ -137,19 +134,6 @@ each kind (`qom-get` of `x-drm-offered`, `x-drm-contexts` and
 `x-virgl-contexts` on the GPU), and a warning shows when the guest draws
 through virgl, or when this computer offers no native context.
 
-## Updates
-
-Once a day at most, the manager asks GitHub whether qemu-gui-manager and
-qemu-gui have commits newer than the ones this computer runs: the commit
-qemu-gui-manager was built from (CMake records it), and the one File >
-Build QEMU last built. That is two anonymous requests to the compare API of
-`api.github.com`, far below the 60 an hour GitHub allows without an account.
-The answer is kept across restarts, Help > Check for Updates asks again
-(not within 5 minutes of the last time), and when GitHub says there were
-too many requests, the manager waits as long as it says. The Updates button
-lists the new commits; File > Build QEMU updates qemu-gui, and `git pull`
-then a build updates the manager. Preferences can turn the check off.
-
 ## Shared folders
 
 For each `#share`, the manager starts a `virtiofsd` as you, and adds the
@@ -219,8 +203,8 @@ The PCI page lists your devices by IOMMU group, and says what is still
 missing for each one:
 
 - The IOMMU must be on, in the firmware (VT-d or AMD-Vi) and in the kernel.
-  AMD kernels turn it on by themselves. On Intel, add `intel_iommu=on` to
-  the kernel command line if `/sys/kernel/iommu_groups` stays empty.
+  AMD kernels turn it on by themselves. On Intel, you may add `intel_iommu=on` to
+  the kernel command line.
 - The device must be bound to `vfio-pci`, along with every device in its
   IOMMU group (bridges excepted), for example with driverctl
   (`sudo dnf install driverctl`):
