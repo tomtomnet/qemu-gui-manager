@@ -429,6 +429,11 @@ void SystemPage::save(ArgsFile &args)
         cpus.model != m_loadedCpus.model) {
         VmConfig::setCpus(args, cpus);
         m_loadedCpus = cpus;
+        /* AMD: the guest sees the threads of its cores only with topoext */
+        if (cpus.threads > 1 && (cpus.model == "host" || cpus.model == "max") &&
+            HostDevices::cpuHasFlag("topoext")) {
+            VmConfig::enableCpuFeature(args, "topoext");
+        }
     }
     if (!cpus.model.isEmpty() && !flags.isEmpty()) {
         const int cpu = args.indexOf("cpu");
@@ -761,7 +766,7 @@ void DisplayPage::load(const ArgsFile &args)
     m_hostmem->setValue(m_loadedHostmemGiB);
 
     m_window->clear();
-    m_window->addItem(tr("SDL, with the qemu-gui menu"), "sdl");
+    m_window->addItem(tr("SDL"), "sdl");
     m_window->addItem(tr("GTK"), "gtk");
     m_window->addItem(tr("None: no window"), "none");
     if (m_loaded.display.isEmpty()) {

@@ -43,6 +43,8 @@ struct Cpus {
 };
 Cpus cpus(const ArgsFile &args);
 void setCpus(ArgsFile &args, const Cpus &cpus);
+/* FEATURE=on on the -cpu line, unless the line sets it already, either way */
+void enableCpuFeature(ArgsFile &args, const QString &feature);
 
 /*
  * Folders shared with virtiofs, the #share directives.  At start the

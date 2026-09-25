@@ -319,4 +319,22 @@ QList<UsbDevice> usbWithoutAccess(const QList<std::pair<quint16, quint16>> &ids,
     }
     return out;
 }
+
+bool cpuHasFlag(const QString &flag, const QString &cpuinfo)
+{
+    QFile f(cpuinfo);
+
+    if (!f.open(QIODevice::ReadOnly)) {
+        return false;
+    }
+    /* "flags\t\t: fpu vme ...", the same for every CPU */
+    for (const QByteArray &line : f.readAll().split('\n')) {
+        if (line.startsWith("flags")) {
+            return QString::fromLatin1(line.mid(line.indexOf(':') + 1))
+                .split(' ', Qt::SkipEmptyParts)
+                .contains(flag);
+        }
+    }
+    return false;
+}
 }

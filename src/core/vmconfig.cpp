@@ -301,6 +301,26 @@ void setShares(ArgsFile &args, const QList<Share> &shares)
     }
 }
 
+void enableCpuFeature(ArgsFile &args, const QString &feature)
+{
+    const int i = args.indexOf("cpu");
+    OptionValue v;
+
+    if (i < 0) {
+        return;
+    }
+    v = args.valueAt(i);
+    /* topoext, +topoext, -topoext or topoext=... */
+    for (const OptionValue::Item &item : v.items()) {
+        const QString key = item.key.isEmpty() ? item.value : item.key;
+        if (key == feature || key.mid(1) == feature) {
+            return;
+        }
+    }
+    v.set(feature, "on");
+    args.setValueAt(i, v);
+}
+
 bool hasSharedMemory(const ArgsFile &args)
 {
     const int backend = ramBackend(args);

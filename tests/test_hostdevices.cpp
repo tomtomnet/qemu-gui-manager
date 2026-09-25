@@ -169,6 +169,19 @@ private slots:
         QVERIFY(problems[0].contains("17.0 GiB"));
     }
 
+    void cpuFlags()
+    {
+        const QString info = tmp.filePath("cpuinfo");
+        QFile f(info);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write("processor\t: 0\nmodel name\t: AMD Ryzen 9 9950X 16-Core Processor\n"
+                "flags\t\t: fpu vme de pse topoext perfctr_core\n");
+        f.close();
+        QVERIFY(HostDevices::cpuHasFlag("topoext", info));
+        QVERIFY(!HostDevices::cpuHasFlag("topo", info));
+        QVERIFY(!HostDevices::cpuHasFlag("topoext", tmp.filePath("none")));
+    }
+
     void usbWithoutAccess()
     {
         if (getuid() == 0) {

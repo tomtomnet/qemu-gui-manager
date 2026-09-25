@@ -62,6 +62,8 @@ QStringList pciProblems(const PciDevice &dev, qint64 guestMiB,
                         const QString &sysfs = "/sys");
 /* RLIMIT_MEMLOCK of this process in bytes, -1 for unlimited */
 qint64 memlockLimit();
+/* Whether the CPU of this computer has @flag, e.g. topoext */
+bool cpuHasFlag(const QString &flag, const QString &cpuinfo = "/proc/cpuinfo");
 /*
  * The plugged in devices matching @ids (vendor, product) whose node this
  * user cannot open, as QEMU must to pass them through.  @dev is "/dev" but

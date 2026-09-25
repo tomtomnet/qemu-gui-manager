@@ -107,6 +107,23 @@ private slots:
         QCOMPARE(VmConfig::cpus(a).count, 8);
     }
 
+    void cpuFeature()
+    {
+        ArgsFile a = ArgsFile::parse("-cpu host\n");
+
+        enableCpuFeature(a, "topoext");
+        QCOMPARE(a.toText(), "-cpu host,topoext=on\n");
+        for (const char *line : {"-cpu host,topoext=off\n", "-cpu host,-topoext\n",
+                                 "-cpu host,+topoext\n"}) {
+            a = ArgsFile::parse(line);
+            enableCpuFeature(a, "topoext");
+            QCOMPARE(a.toText(), QString(line));
+        }
+        a = ArgsFile::parse("-m 1G\n");
+        enableCpuFeature(a, "topoext");
+        QCOMPARE(a.toText(), "-m 1G\n");
+    }
+
     void shares()
     {
         ArgsFile a = ArgsFile::parse(
