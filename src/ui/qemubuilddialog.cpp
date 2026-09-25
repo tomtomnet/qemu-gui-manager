@@ -22,18 +22,14 @@
 #include "core/qemubuilder.h"
 #include "ui/widgets.h"
 
-/* The build options of the fork's README */
-static QString leanArgs()
+/* What configure takes: the features of the branch built, and the targets */
+static QString featuresUrl()
 {
-    return "--target-list=" + Paths::hostArch() + "-softmmu --without-default-features "
-           "--enable-kvm --enable-tcg --enable-pixman --enable-attr --enable-virtfs "
-           "--enable-hmp --enable-malloc-trim "
-           "--enable-sdl --enable-sdl-gui --enable-gtk --enable-opengl --enable-virglrenderer "
-           "--enable-libusb --enable-pa --enable-pipewire --enable-spice-protocol "
-           "--enable-passt --enable-gio --enable-slirp "
-           "--enable-tpm --enable-vhost-kernel --enable-vhost-net --enable-vhost-user "
-           "--enable-zstd --enable-png --enable-tools --enable-fdt=internal --disable-docs";
+    return QString(QemuBuilder::defaultUrl()).chopped(4) + "/blob/" +
+           QemuBuilder::defaultBranch() + "/meson_options.txt";
 }
+
+static const char kTargetsUrl[] = "https://www.qemu.org/docs/master/system/targets.html";
 
 QemuBuildDialog::QemuBuildDialog(QWidget *parent)
     : QDialog(parent), m_builder(new QemuBuilder(this))
@@ -53,16 +49,27 @@ QemuBuildDialog::QemuBuildDialog(QWidget *parent)
     intro->setToolTip(tr("Downloaded into %1").arg(QemuBuilder::defaultSourceDir()));
     layout->addWidget(intro);
 
+    /*
+     * The host's target alone, with the features configure finds: the
+     * target list is what sizes a build, all of them being ten times more
+     */
     m_preset = new QComboBox;
-    m_preset->addItem(tr("Everything QEMU finds"), QemuBuilder::defaultConfigureArgs().join(' '));
-    m_preset->addItem(tr("Only what a desktop VM uses (faster)"), leanArgs());
-    m_preset->addItem(tr("Custom"));
+    m_preset->addItem(tr("%1, this computer").arg(Paths::hostArch()),
+                      QemuBuilder::defaultConfigureArgs().join(' '));
+    m_preset->addItem(tr("Custom configure options"));
     m_configure = new QLineEdit(settings.value("build/configure",
                                                QemuBuilder::defaultConfigureArgs().join(' '))
                                     .toString());
-    m_configure->setToolTip(tr("The options for QEMU's configure script"));
-    form->addRow(tr("&Build:"), m_preset);
-    form->addRow(tr("&configure:"), m_configure);
+    form->addRow(tr("&Build for:"), m_preset);
+    form->addRow(tr("configure &options:"), m_configure);
+    form->addRow(QString(),
+                 Widgets::hint(tr("Options of QEMU's <code>configure</code> script, like "
+                                  "<nobr><code>--disable-gtk</code></nobr> or "
+                                  "<nobr><code>--target-list=x86_64-softmmu,aarch64-softmmu"
+                                  "</code></nobr>. The <a href=\"%1\">features</a> go with "
+                                  "<code>--enable-</code> or <code>--disable-</code>, the "
+                                  "<a href=\"%2\">targets</a> in <code>--target-list</code>.")
+                                   .arg(featuresUrl(), QString(kTargetsUrl))));
     layout->addLayout(form);
 
     m_virgl = new QCheckBox(tr("&DRM native context: 3D acceleration by the host GPU's own "
@@ -103,17 +110,17 @@ QemuBuildDialog::QemuBuildDialog(QWidget *parent)
     m_build->setDefault(true);
     layout->addWidget(buttons);
 
-    auto syncPreset = [this]() {
-        const int i = m_preset->findData(m_configure->text().simplified());
-        m_preset->blockSignals(true);
-        m_preset->setCurrentIndex(i < 0 ? m_preset->count() - 1 : i);
-        m_preset->blockSignals(false);
-    };
-    syncPreset();
-    connect(m_configure, &QLineEdit::textEdited, this, syncPreset);
+    /* the options saved are the host's, else custom ones */
+    const int saved = m_preset->findData(m_configure->text().simplified());
+    m_preset->setCurrentIndex(saved < 0 ? m_preset->count() - 1 : saved);
     connect(m_preset, &QComboBox::currentIndexChanged, this, [this](int i) {
+        /* custom ones start from those shown */
         if (!m_preset->itemData(i).isNull()) {
             m_configure->setText(m_preset->itemData(i).toString());
+        }
+        updateState();
+        if (m_configure->isEnabled()) {
+            m_configure->setFocus();
         }
     });
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::close);
@@ -199,9 +206,10 @@ void QemuBuildDialog::updateState()
     const bool running = m_builder->isRunning();
     const QString binary = QemuBuilder::binary(QemuBuilder::defaultSourceDir());
 
-    for (QWidget *w : std::initializer_list<QWidget *>{m_preset, m_configure, m_virgl}) {
-        w->setEnabled(!running);
-    }
+    m_preset->setEnabled(!running);
+    m_virgl->setEnabled(!running);
+    /* editable for custom options only */
+    m_configure->setEnabled(!running && m_preset->currentData().isNull());
     m_build->setEnabled(!running);
     m_cancel->setVisible(running);
     m_use->setEnabled(!running && QFileInfo(binary).isExecutable() &&
