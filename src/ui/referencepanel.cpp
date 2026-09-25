@@ -4,6 +4,7 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QCloseEvent>
+#include <QDesktopServices>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
@@ -14,6 +15,7 @@
 #include <QTextBrowser>
 #include <QTimer>
 #include <QTreeWidget>
+#include <QUrl>
 #include <QVBoxLayout>
 
 #include "core/paths.h"
@@ -63,7 +65,13 @@ ReferencePanel::ReferencePanel(QWidget *parent)
     m_results->header()->setSectionResizeMode(0, QHeaderView::Interactive);
 
     m_doc->setObjectName("doc");
-    m_doc->setOpenExternalLinks(true);
+    /* QTextBrowser would open file: links itself, and show nothing */
+    m_doc->setOpenLinks(false);
+    connect(m_doc, &QTextBrowser::anchorClicked, this, [](const QUrl &url) {
+        if (!url.scheme().isEmpty()) {
+            QDesktopServices::openUrl(url);
+        }
+    });
 
     m_use->setEnabled(false);
     buttons->addStretch();

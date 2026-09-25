@@ -2,6 +2,7 @@
 #include "vmdetails.h"
 
 #include <QCoreApplication>
+#include <QDesktopServices>
 #include <QDir>
 #include <QFileInfo>
 #include <QHBoxLayout>
@@ -89,7 +90,13 @@ VmDetails::VmDetails(QWidget *parent)
     m_error->button()->show();
     m_error->hide();
     m_text->setObjectName("details");
-    m_text->setOpenExternalLinks(true);
+    /* QTextBrowser would open file: links itself, and show nothing */
+    m_text->setOpenLinks(false);
+    connect(m_text, &QTextBrowser::anchorClicked, this, [](const QUrl &url) {
+        if (!url.scheme().isEmpty()) {
+            QDesktopServices::openUrl(url);
+        }
+    });
     m_text->setFrameShape(QFrame::NoFrame);
 
     layout->setContentsMargins(0, 0, 0, 0);
