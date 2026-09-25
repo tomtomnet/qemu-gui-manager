@@ -62,6 +62,8 @@ private:
     void forceOff();
     void cloneVm();
     void remove();
+    /* Start, with -loadvm @snapshot */
+    void startFrom(const QString &snapshot);
     void showLog();
     void showWindow();
     void showCommandLine();
@@ -82,6 +84,8 @@ private:
     QSet<QString> m_starting;
     /* Waiting for access to their USB devices, to start */
     QSet<QString> m_askingUsb;
+    /* The snapshot the next start of a VM starts from, by id */
+    QHash<QString, QString> m_loadvm;
     QPointer<QemuBuildDialog> m_buildDialog;
     /* The selection left a VM with changes, to ask about */
     bool m_leaving = false;

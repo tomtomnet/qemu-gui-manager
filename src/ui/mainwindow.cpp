@@ -243,6 +243,7 @@ MainWindow::MainWindow(VmStore *store, QWidget *parent)
         menu.exec(m_list->viewport()->mapToGlobal(pos));
     });
     connect(m_details, &VmDetails::showLog, this, &MainWindow::showLog);
+    connect(m_pane, &VmPane::startFromSnapshot, this, &MainWindow::startFrom);
     connect(store, &VmStore::added, this, &MainWindow::addVm);
     connect(store, &VmStore::removed, this, &MainWindow::removeItem);
     connect(QemuDocs::preferred(), &QemuDocs::changed, this, &MainWindow::updateStatus);
@@ -699,6 +700,14 @@ void MainWindow::openSettings(Vm *vm, int page)
     m_pane->setTab(VmPane::Settings);
 }
 
+void MainWindow::startFrom(const QString &snapshot)
+{
+    if (Vm *vm = current()) {
+        m_loadvm.insert(vm->id(), snapshot);
+        start();
+    }
+}
+
 void MainWindow::start()
 {
     Vm *vm = current();
@@ -706,6 +715,8 @@ void MainWindow::start()
     if (!vm) {
         return;
     }
+    /* for this start only */
+    const QString snapshot = m_loadvm.take(vm->id());
     /* it starts with the settings saved */
     if (vm == m_pane->vm() && !m_pane->confirmChanges(tr("Apply them before it starts?"))) {
         return;
@@ -727,7 +738,7 @@ void MainWindow::start()
     const QString id = vm->id();
     m_askingUsb.insert(id);
     statusBar()->showMessage(tr("Checking the access to the USB devices of %1…").arg(vm->name()));
-    UsbAccess::request(vm, this, [this, id](const QString &warning) {
+    UsbAccess::request(vm, this, [this, id, snapshot](const QString &warning) {
         Vm *vm = m_store->find(id);
 
         m_askingUsb.remove(id);
@@ -736,7 +747,11 @@ void MainWindow::start()
             return;
         }
         m_starting.insert(id);
-        vm->runner()->start(vm->args());
+        ArgsFile args = vm->args();
+        if (!snapshot.isEmpty()) {
+            args.add("loadvm", snapshot);
+        }
+        vm->runner()->start(args);
         if (!warning.isEmpty()) {
             auto *box = new QMessageBox(QMessageBox::Warning, tr("USB Passthrough"), warning,
                                         QMessageBox::Ok, this);
