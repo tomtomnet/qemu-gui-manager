@@ -1,0 +1,51 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+#pragma once
+
+#include <QGridLayout>
+#include <QString>
+
+class QLabel;
+class QLineEdit;
+class QSlider;
+class QSpinBox;
+class QWidget;
+
+/*
+ * Labels and fields in two columns, like QFormLayout, whose rows get the
+ * height of wrapped notes wrong.  The fields keep their size, but for the
+ * expanding ones: line edits, sliders, notes.
+ */
+class Form : public QGridLayout
+{
+public:
+    Form();
+
+    /* A label with a mnemonic focuses the field */
+    void addRow(const QString &label, QWidget *field);
+    void addRow(QWidget *label, QWidget *field);
+    void addRow(const QString &label, QLayout *field);
+    void addRow(QWidget *label, QLayout *field);
+
+private:
+    void addLabel(QWidget *label, Qt::Alignment vertical);
+};
+
+/* What the dialogs and pages are made of */
+namespace Widgets {
+
+Form *form();
+/* A form label whose mnemonic focuses @buddy, for fields that are layouts */
+QLabel *label(const QString &text, QWidget *buddy);
+/* Wrapped, selectable text with links */
+QLabel *note(const QString &text = {});
+/* A note in a smaller, dimmer font, under a field */
+QLabel *hint(const QString &text = {});
+/* @edit with a Browse button for a file, or for a folder if @folder */
+QWidget *browseRow(QLineEdit *edit, const QString &title, const QString &filter = {},
+                   bool folder = false);
+/* @slider moves @spin in steps of @unit, and follows it */
+void link(QSlider *slider, QSpinBox *spin, int unit);
+/* The RAM of this computer */
+qint64 hostMemoryMiB();
+
+}

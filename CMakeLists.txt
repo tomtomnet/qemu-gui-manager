@@ -18,9 +18,18 @@ target_compile_options(qgm_core PRIVATE -Wall -Wextra)
 
 file(GLOB UI_SOURCES CONFIGURE_DEPENDS src/ui/*.cpp src/ui/*.h)
 qt_add_executable(qemu-gui-manager src/main.cpp ${UI_SOURCES})
+qt_add_resources(qemu-gui-manager icons PREFIX /icons BASE data
+    FILES data/qemu-gui-manager.svg)
 target_link_libraries(qemu-gui-manager PRIVATE qgm_core Qt6::Widgets)
+target_compile_definitions(qemu-gui-manager PRIVATE QGM_VERSION="${PROJECT_VERSION}")
 target_compile_options(qemu-gui-manager PRIVATE -Wall -Wextra)
-install(TARGETS qemu-gui-manager RUNTIME DESTINATION bin)
+
+include(GNUInstallDirs)
+install(TARGETS qemu-gui-manager RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(FILES data/qemu-gui-manager.desktop
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
+install(FILES data/qemu-gui-manager.svg
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps)
 
 option(BUILD_TESTING "Build the unit tests" ON)
 if(BUILD_TESTING)
