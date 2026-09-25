@@ -16,6 +16,13 @@ namespace VmConfig {
 QString name(const ArgsFile &args);
 void setName(ArgsFile &args, const QString &name);
 
+/*
+ * The QEMU binary of this VM, the #qemu directive, e.g. a build with a
+ * patch the VM needs; empty for the one in the preferences
+ */
+QString qemuBinary(const ArgsFile &args);
+void setQemuBinary(ArgsFile &args, const QString &path);
+
 /* QEMU sizes: a number with an optional K/M/G/T suffix */
 qint64 parseSize(const QString &text, qint64 unit);
 QString formatMiB(qint64 mib);

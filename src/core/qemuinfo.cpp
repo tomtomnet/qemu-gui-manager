@@ -11,8 +11,9 @@
 #include <QJsonObject>
 #include <QProcess>
 #include <QRegularExpression>
-#include <QStandardPaths>
 #include <QtConcurrent>
+
+#include "core/paths.h"
 
 /* The column where -help puts the descriptions */
 static const int kHelpColumn = 16;
@@ -37,65 +38,126 @@ const QemuDeviceDoc *QemuInfo::device(const QString &name) const
     return nullptr;
 }
 
+static qsizetype indentOf(const QString &line)
+{
+    qsizetype n = 0;
+
+    while (n < line.size() && line[n] == ' ') {
+        n++;
+    }
+    return n;
+}
+
+static qsizetype indexOfOption(const QList<QemuOptionDoc> &options, const QString &name)
+{
+    for (qsizetype i = 0; i < options.size(); i++) {
+        if (options[i].name == name) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+/*
+ * -help lists each option as its synopsis at column 0, continued on lines
+ * starting with '[', then the description from column 16, on the same line
+ * when the synopsis is short enough.  Section headers end with ':', and
+ * options with several forms (-numa node..., -numa dist...) repeat.
+ */
 QList<QemuOptionDoc> QemuInfo::parseHelp(const QString &text)
 {
-    static const QRegularExpression gap("\\s{2,}");
+    static const QRegularExpression gap(" {2,}");
     QList<QemuOptionDoc> out;
+    QList<qsizetype> current;       /* the entries being read, -hda and -hdb */
+    bool inSynopsis = false;
     QString section;
-    qsizetype current = -1;     /* first entry of the option being read */
 
-    for (const QString &line : text.split('\n')) {
-        if (line.trimmed().isEmpty()) {
-            current = -1;
-            continue;
+    auto addHelp = [&](const QString &help) {
+        for (qsizetype i : std::as_const(current)) {
+            out[i].help += (out[i].help.isEmpty() ? "" : "\n") + help;
         }
-        if (line.startsWith('-')) {
-            QemuOptionDoc doc;
-            QRegularExpressionMatch m = gap.match(line, 1);
-            qsizetype split = -1;
+        inSynopsis = false;
+    };
 
-            /* the description starts at the help column, if on this line */
-            while (m.hasMatch()) {
+    for (QString line : text.split('\n')) {
+        while (line.endsWith(' ') || line.endsWith('\r')) {
+            line.chop(1);
+        }
+        const qsizetype indent = indentOf(line);
+
+        if (line.isEmpty()) {
+            current.clear();
+        } else if (line.startsWith('-')) {
+            QString synopsis = line, help;
+            QRegularExpressionMatchIterator it = gap.globalMatch(line);
+
+            while (it.hasNext()) {
+                const QRegularExpressionMatch m = it.next();
                 if (m.capturedEnd() >= kHelpColumn) {
-                    split = m.capturedStart();
+                    synopsis = line.left(m.capturedStart());
+                    help = line.mid(m.capturedEnd());
                     break;
                 }
-                m = gap.match(line, m.capturedEnd());
             }
-            doc.synopsis = (split < 0 ? line : line.left(split)).trimmed();
-            doc.help = split < 0 ? QString() : line.mid(m.capturedEnd()).trimmed();
-            doc.section = section;
+            QStringList words = synopsis.split(' ', Qt::SkipEmptyParts);
+            /* "-kernel bzImage use 'bzImage' as kernel image" */
+            if (help.isEmpty() && words.size() > 2 && words[1] != "or") {
+                help = words.mid(2).join(' ');
+                words = words.mid(0, 2);
+                synopsis = words.join(' ');
+            }
 
-            const QStringList words = doc.synopsis.split(' ', Qt::SkipEmptyParts);
-            doc.takesValue = words.size() > 1 && words[1] != "or";
-            current = out.size();
-            /* -hda/-hdb file: one entry each */
-            for (const QString &name : words[0].mid(1).split("/-")) {
-                doc.name = name;
-                out.append(doc);
+            QStringList names;
+            bool takesValue;
+            if (words.size() == 3 && words[1] == "or") {
+                names = QStringList{words[0].mid(1), words[2].mid(1)};
+                takesValue = false;
+            } else {
+                names = words[0].mid(1).split("/-");
+                takesValue = words.size() > 1;
             }
-        } else if (line.startsWith(' ')) {
-            for (qsizetype i = current; i >= 0 && i < out.size(); i++) {
-                QString &help = out[i].help;
-                help += (help.isEmpty() ? "" : "\n") + line.trimmed();
+
+            current.clear();
+            for (const QString &name : std::as_const(names)) {
+                qsizetype i = indexOfOption(out, name);
+                if (i < 0) {
+                    QemuOptionDoc doc;
+                    doc.name = name;
+                    doc.synopsis = synopsis;
+                    doc.section = section;
+                    doc.takesValue = takesValue;
+                    i = out.size();
+                    out << doc;
+                } else {
+                    out[i].synopsis += '\n' + synopsis;
+                }
+                current << i;
+            }
+            inSynopsis = true;
+            if (!help.isEmpty()) {
+                addHelp(help);
+            }
+        } else if (indent == 0 && line.endsWith(':')) {
+            section = line.chopped(1);
+            current.clear();
+        } else if (current.isEmpty()) {
+            /* the banner and the key bindings at the end */
+        } else if (inSynopsis && indent < kHelpColumn && line[indent] == '[') {
+            for (qsizetype i : std::as_const(current)) {
+                out[i].synopsis += '\n' + line;
             }
         } else {
-            /* e.g. "Standard options:" */
-            current = -1;
-            if (line.trimmed().endsWith(':')) {
-                section = line.trimmed().chopped(1);
-            }
+            addHelp(indent >= kHelpColumn ? line.mid(kHelpColumn) : line.trimmed());
         }
     }
 
     /* -M as -machine */
     for (QemuOptionDoc &o : out) {
         if (o.help.startsWith("as -")) {
-            const QString target = o.help.mid(4).section(' ', 0, 0);
-            for (const QemuOptionDoc &t : out) {
-                if (t.name == target) {
-                    o.takesValue = t.takesValue;
-                }
+            const QString target = o.help.mid(4).section(QRegularExpression("[^\\w-]"), 0, 0);
+            const qsizetype i = indexOfOption(out, target);
+            if (i >= 0) {
+                o.takesValue = out[i].takesValue;
             }
         }
     }
@@ -125,58 +187,41 @@ static QStringList stringLiterals(const QString &text)
     return literals;
 }
 
+/*
+ * qemu-options.hx: DEF(name, HAS_ARG or 0, enum, help, arch), possibly over
+ * several lines, then the reStructuredText of the DEFs above it between
+ * SRST and ERST.  Only the options the binary has are documented.
+ */
 void QemuInfo::mergeOptionsHx(QList<QemuOptionDoc> &options, const QString &hx)
 {
-    struct Def {
-        QString name;
-        bool takesValue;
-        QString section;
-    };
-    QList<Def> pending;
-    QString section, def, rst;
+    QList<std::pair<QString, bool>> pending;
+    QString def, rst;
     bool inDef = false, inRst = false;
     int depth = 0;
 
-    auto attach = [&]() {
-        for (const Def &d : pending) {
-            for (QemuOptionDoc &o : options) {
-                if (o.name == d.name) {
-                    o.details = rst;
-                    o.takesValue = d.takesValue;
-                    if (!d.section.isEmpty()) {
-                        o.section = d.section;
-                    }
-                }
-            }
-        }
-        pending.clear();
-    };
-
     for (const QString &line : hx.split('\n')) {
         if (inRst) {
-            if (line.trimmed() == "ERST") {
-                inRst = false;
-                attach();
-            } else {
+            if (line.trimmed() != "ERST") {
                 rst += line + '\n';
+                continue;
             }
-            continue;
-        }
-        if (!inDef && line.startsWith("DEFHEADING(")) {
-            section = line.mid(11).section(')', 0, 0).trimmed();
-            if (section.endsWith(':')) {
-                section.chop(1);
+            inRst = false;
+            for (const auto &[name, takesValue] : std::as_const(pending)) {
+                const qsizetype i = indexOfOption(options, name);
+                if (i >= 0) {
+                    options[i].details = rst;
+                    options[i].takesValue = takesValue;
+                }
             }
-            continue;
-        }
-        if (!inDef && line.startsWith("DEF(")) {
-            inDef = true;
-            def.clear();
-            depth = 0;
-        }
-        if (inDef) {
+            pending.clear();
+        } else if (inDef || line.startsWith("DEF(")) {
             bool inString = false;
 
+            if (!inDef) {
+                inDef = true;
+                def.clear();
+                depth = 0;
+            }
             def += line + '\n';
             for (qsizetype i = 0; i < line.size(); i++) {
                 if (line[i] == '\\' && inString) {
@@ -192,16 +237,23 @@ void QemuInfo::mergeOptionsHx(QList<QemuOptionDoc> &options, const QString &hx)
             if (depth <= 0) {
                 const QStringList literals = stringLiterals(def);
                 if (!literals.isEmpty()) {
-                    const QString afterName = def.section(',', 1, 1).trimmed();
-                    pending << Def{literals[0], afterName == "HAS_ARG", section};
+                    pending.append({literals[0], def.section(',', 1, 1).trimmed() == "HAS_ARG"});
                 }
                 inDef = false;
             }
-            continue;
-        }
-        if (line.trimmed() == "SRST") {
+        } else if (line.trimmed() == "SRST") {
             inRst = true;
             rst.clear();
+        }
+    }
+
+    /* -h shares the documentation of -help */
+    for (QemuOptionDoc &o : options) {
+        for (const QemuOptionDoc &other : std::as_const(options)) {
+            if (o.details.isEmpty() && !other.details.isEmpty() &&
+                other.synopsis == o.synopsis) {
+                o.details = other.details;
+            }
         }
     }
 }
@@ -307,7 +359,8 @@ QList<QemuPropertyDoc> QemuInfo::parsePropertyHelp(const QString &text)
             p.defaultValue = m.captured(1);
             rest = rest.left(m.capturedStart()).trimmed();
         }
-        p.desc = rest;
+        /* bools all say on/off */
+        p.desc = p.type == "bool" && rest == "on/off" ? QString() : rest;
         out << p;
     }
     return out;
@@ -330,81 +383,221 @@ QList<QemuNamedDoc> QemuInfo::parseListHelp(const QString &text)
     return out;
 }
 
-static QString inlineRst(QString text)
+/*
+ * Inline markup: ``literal``, **strong**, *emphasis*, `interpreted`,
+ * :role:`text <target>`, `link <url>`_, |substitution| and \ escapes
+ */
+static QString inlineRst(const QString &text)
 {
     static const QRegularExpression literal("``(.+?)``");
     static const QRegularExpression strong("\\*\\*(.+?)\\*\\*");
-    static const QRegularExpression emphasis("(^|[^`])`([^`]+)`");
+    static const QRegularExpression emphasis("\\*([^*\\s](?:[^*]*[^*\\s])?)\\*");
+    static const QRegularExpression role(":[\\w-]+:`([^`]*)`");
+    static const QRegularExpression reference("`([^`]+)`(_{0,2})");
+    /* those QEMU's documentation defines */
+    static const QRegularExpression substitution("\\|qemu_system(?:_x86)?\\|");
+    const auto anchored = QRegularExpression::AnchorAtOffsetMatchOption;
+    QString out;
 
-    text = text.toHtmlEscaped().replace("\\ ", "");
-    text.replace(literal, "<code>\\1</code>");
-    text.replace(strong, "<b>\\1</b>");
-    text.replace(emphasis, "\\1<i>\\2</i>");
-    return text;
-}
-
-QString QemuInfo::rstToHtml(const QString &rst)
-{
-    QString html;
-    QStringList block;
-    bool literalNext = false;
-
-    auto flush = [&]() {
-        if (block.isEmpty()) {
-            return;
-        }
-        const qsizetype indent = block[0].size() - block[0].trimmed().size();
-        if (literalNext) {
-            QString pre;
-            for (const QString &l : block) {
-                pre += l.mid(qMin(indent, l.size())) + '\n';
-            }
-            html += "<pre>" + pre.toHtmlEscaped() + "</pre>";
-            literalNext = false;
-        } else if (block[0].trimmed().startsWith("- ") ||
-                   block[0].trimmed().startsWith("* ")) {
-            html += "<ul>";
-            QString item;
-            for (const QString &l : block) {
-                const QString t = l.trimmed();
-                if (t.startsWith("- ") || t.startsWith("* ")) {
-                    if (!item.isEmpty()) {
-                        html += "<li>" + inlineRst(item) + "</li>";
-                    }
-                    item = t.mid(2);
-                } else {
-                    item += ' ' + t;
-                }
-            }
-            html += "<li>" + inlineRst(item) + "</li></ul>";
-        } else {
-            QStringList words;
-            for (const QString &l : block) {
-                words << l.trimmed();
-            }
-            QString text = words.join(' ');
-            if (text.endsWith("::")) {
-                literalNext = true;
-                text.chop(1);
-            }
-            if (indent == 0 && text.startsWith("``")) {
-                html += "<p><b>" + inlineRst(text) + "</b></p>";
-            } else {
-                html += QString("<p style=\"margin-left:%1px\">")
-                            .arg(indent > 4 ? 16 : 0) + inlineRst(text) + "</p>";
-            }
-        }
-        block.clear();
+    /* "text <target>" */
+    auto label = [](const QString &ref) {
+        const qsizetype lt = ref.lastIndexOf('<');
+        const QString text = lt > 0 && ref.endsWith('>') ? ref.left(lt) : ref;
+        return text.trimmed().replace("_005f", "_").toHtmlEscaped();
+    };
+    auto at = [&](const QRegularExpression &re, qsizetype i, QRegularExpressionMatch *m) {
+        *m = re.match(text, i, QRegularExpression::NormalMatch, anchored);
+        return m->hasMatch();
     };
 
-    for (const QString &line : rst.split('\n')) {
-        if (line.trimmed().isEmpty()) {
-            flush();
+    for (qsizetype i = 0; i < text.size();) {
+        const QChar c = text[i];
+        const bool wordBefore = i > 0 && text[i - 1].isLetterOrNumber();
+        QRegularExpressionMatch m;
+
+        if (c == '`' && at(literal, i, &m)) {
+            out += "<code>" + m.captured(1).toHtmlEscaped() + "</code>";
+        } else if (c == ':' && at(role, i, &m)) {
+            out += label(m.captured(1));
+        } else if (c == '`' && at(reference, i, &m)) {
+            const QString ref = m.captured(1);
+            const qsizetype lt = ref.lastIndexOf('<');
+            if (!m.captured(2).isEmpty() && lt > 0 && ref.endsWith('>')) {
+                out += QString("<a href=\"%1\">%2</a>")
+                           .arg(ref.mid(lt + 1).chopped(1).toHtmlEscaped(), label(ref));
+            } else {
+                out += "<i>" + label(ref) + "</i>";
+            }
+        } else if (c == '*' && at(strong, i, &m)) {
+            out += "<b>" + m.captured(1).toHtmlEscaped() + "</b>";
+        } else if (c == '*' && !wordBefore && at(emphasis, i, &m)) {
+            out += "<i>" + m.captured(1).toHtmlEscaped() + "</i>";
+        } else if (c == '|' && at(substitution, i, &m)) {
+            out += "qemu-system-x86_64";
+        } else if (c == '\\' && i + 1 < text.size()) {
+            /* "\ " joins, "\x" is x */
+            if (text[i + 1] != ' ') {
+                out += QString(text[i + 1]).toHtmlEscaped();
+            }
+            i += 2;
+            continue;
         } else {
-            block << line;
+            out += QString(c).toHtmlEscaped();
+            i++;
+            continue;
+        }
+        i = m.capturedEnd();
+    }
+    return out;
+}
+
+static bool isBullet(const QString &trimmed)
+{
+    static const QRegularExpression enumerated("^\\d+\\. ");
+    return trimmed.startsWith("- ") || trimmed.startsWith("* ") ||
+           enumerated.match(trimmed).hasMatch();
+}
+
+static bool isTableBorder(const QString &trimmed)
+{
+    static const QRegularExpression border("^=+( +=+)*$");
+    return border.match(trimmed).hasMatch();
+}
+
+/*
+ * What QTextBrowser shows of the reStructuredText of qemu-options.hx:
+ * paragraphs, definition lists (a line followed by deeper ones), bullets,
+ * literal blocks and simple tables, indented as in the source.
+ */
+QString QemuInfo::rstToHtml(const QString &rst)
+{
+    const QStringList lines = rst.split('\n');
+    const qsizetype n = lines.size();
+    QString html, prefix;
+    qsizetype i = 0;
+
+    auto blank = [&](qsizetype k) { return lines[k].trimmed().isEmpty(); };
+    auto block = [&](const QString &tag, qsizetype indent, const QString &content) {
+        html += QString("<%1 style=\"margin-left:%2px\">%3</%1>")
+                    .arg(tag, QString::number(indent * 5), content);
+    };
+    /* the lines deeper than @indent, blank ones included */
+    auto literal = [&](qsizetype indent, bool parsed) {
+        QStringList body;
+        qsizetype strip = -1;
+        QString text;
+
+        while (i < n && (blank(i) || indentOf(lines[i]) > indent)) {
+            body << lines[i++];
+        }
+        while (!body.isEmpty() && body.first().trimmed().isEmpty()) {
+            body.removeFirst();
+        }
+        while (!body.isEmpty() && body.last().trimmed().isEmpty()) {
+            body.removeLast();
+        }
+        for (const QString &l : std::as_const(body)) {
+            if (!l.trimmed().isEmpty() && (strip < 0 || indentOf(l) < strip)) {
+                strip = indentOf(l);
+            }
+        }
+        for (const QString &l : std::as_const(body)) {
+            const QString line = l.mid(strip);
+            text += (parsed ? inlineRst(line) : line.toHtmlEscaped()) + '\n';
+        }
+        if (strip >= 0) {
+            text.chop(1);
+            block("pre", strip, text);
+        }
+    };
+
+    while (i < n) {
+        if (blank(i)) {
+            i++;
+            continue;
+        }
+
+        const QString t = lines[i].trimmed();
+        const qsizetype indent = indentOf(lines[i]);
+
+        if (t == "\\") {
+            /* between the terms of one definition */
+            i++;
+        } else if (t.startsWith(".. ")) {
+            const QString directive = t.mid(3).section("::", 0, 0).trimmed();
+            const QString argument = t.section("::", 1).trimmed();
+
+            i++;
+            if (directive == "parsed-literal" || directive.startsWith("code")) {
+                literal(indent, directive == "parsed-literal");
+            } else if (directive == "warning" || directive == "note") {
+                prefix = QString("<b>%1</b> ").arg(directive == "note" ? QObject::tr("Note:")
+                                                                        : QObject::tr("Warning:"));
+                if (!argument.isEmpty()) {
+                    block("p", indent, prefix + inlineRst(argument));
+                    prefix.clear();
+                }
+            } else {
+                /* include, link targets... */
+                while (i < n && (blank(i) || indentOf(lines[i]) > indent)) {
+                    i++;
+                }
+            }
+        } else if (isTableBorder(t)) {
+            QString text;
+            QString last;
+
+            while (i < n && !(blank(i) && isTableBorder(last) && text.count('\n') > 1)) {
+                if (!blank(i)) {
+                    last = lines[i].trimmed();
+                }
+                text += lines[i++].mid(indent).toHtmlEscaped() + '\n';
+            }
+            text.chop(1);
+            block("pre", indent, text);
+        } else if (isBullet(t)) {
+            const bool numbered = t[0].isDigit();
+            QString item = numbered ? t : t.mid(2);
+
+            for (i++; i < n && !blank(i) && indentOf(lines[i]) > indent &&
+                      !isBullet(lines[i].trimmed()); i++) {
+                item += ' ' + lines[i].trimmed();
+            }
+            block("p", indent, prefix + (numbered ? "" : "• ") + inlineRst(item));
+            prefix.clear();
+        } else if (i + 1 < n && !blank(i + 1) && indentOf(lines[i + 1]) > indent) {
+            block("p", indent, "<b>" + inlineRst(t) + "</b>");
+            i++;
+        } else {
+            QStringList para{t};
+            QString term;
+
+            for (i++; i < n && !blank(i) && indentOf(lines[i]) == indent &&
+                      !isBullet(lines[i].trimmed()); i++) {
+                para << lines[i].trimmed();
+            }
+            /* a term right after the paragraph */
+            if (para.size() > 1 && i < n && !blank(i) && indentOf(lines[i]) > indent) {
+                term = para.takeLast();
+            }
+
+            QString text = para.join(' ');
+            const bool literalNext = text.endsWith("::");
+            if (literalNext) {
+                text.chop(text == "::" ? 2 : text.endsWith(" ::") ? 3 : 1);
+            }
+            if (!text.isEmpty()) {
+                block("p", indent, prefix + inlineRst(text));
+                prefix.clear();
+            }
+            if (!term.isEmpty()) {
+                block("p", indent, "<b>" + inlineRst(term) + "</b>");
+            }
+            if (literalNext) {
+                literal(indent, false);
+            }
         }
     }
-    flush();
     return html;
 }
 
@@ -444,16 +637,21 @@ QString QemuInfoLoader::run(const QStringList &args, QString *error) const
     return QString::fromUtf8(p.readAll());
 }
 
+/* Bump when the parsers change what they produce */
+static const int kCacheFormat = 1;
+
 QString QemuInfoLoader::cachePath() const
 {
-    const QFileInfo fi(m_binary);
-    const QByteArray key = QCryptographicHash::hash(
-        (fi.canonicalFilePath() + '|' +
-         QString::number(fi.lastModified().toMSecsSinceEpoch()) + '|' +
-         QString::number(fi.size())).toUtf8(),
-        QCryptographicHash::Sha1).toHex();
-    return QStandardPaths::writableLocation(QStandardPaths::CacheLocation) +
-           "/qemu-info-" + key + ".json";
+    QString key = QString::number(kCacheFormat);
+
+    for (const QString &path : {m_binary, findOptionsHx(m_binary)}) {
+        const QFileInfo fi(path);
+        key += QString("|%1|%2|%3").arg(fi.canonicalFilePath(),
+                                        QString::number(fi.lastModified().toMSecsSinceEpoch()),
+                                        QString::number(fi.size()));
+    }
+    return Paths::cacheDir() + "/qemu-info-" +
+           QCryptographicHash::hash(key.toUtf8(), QCryptographicHash::Sha1).toHex() + ".json";
 }
 
 static QJsonArray namedToJson(const QList<QemuNamedDoc> &list)

@@ -19,6 +19,8 @@
  * directives, which QEMU never sees:
  *
  *   #share tag=...,path=...[,cache=...]   a folder shared with virtiofs
+ *   #qemu /path/to/qemu-system-x86_64     the QEMU of this VM, if not the
+ *                                         one in the preferences
  *
  * Blank lines, comments and the order of the lines survive editing.
  */

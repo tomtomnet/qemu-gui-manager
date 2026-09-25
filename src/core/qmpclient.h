@@ -24,6 +24,7 @@ public:
     ~QmpClient() override;
 
     void connectToSocket(const QString &path);
+    /* Fails the pending commands, without disconnected() */
     void disconnectFromSocket();
     /* Connected, capabilities negotiated */
     bool isReady() const;
@@ -33,7 +34,10 @@ public:
 
 signals:
     void ready();
+    /* Could not connect, or the connection closed before ready(): the
+       queued commands wait for the next connection */
     void connectionFailed(const QString &error);
+    /* The connection closed after ready(): the pending commands failed */
     void disconnected();
     void qmpEvent(const QString &name, const QJsonObject &data);
 
