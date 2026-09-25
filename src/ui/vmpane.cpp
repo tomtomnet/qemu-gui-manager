@@ -250,6 +250,8 @@ void VmPane::switchTo(int row)
     m_pages[row]->load(m_args);
     m_stack->setCurrentIndex(row);
     m_title->setText(m_pages[row]->title());
+    /* in line with the page, which has margins of its own */
+    m_title->setContentsMargins(m_pages[row]->layout()->contentsMargins().left(), 0, 0, 0);
     updateFooter();
 }
 
