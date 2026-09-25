@@ -15,9 +15,10 @@ QIcon themed(const QStringList &names, QStyle::StandardPixmap fallback)
     return qApp->style()->standardIcon(fallback);
 }
 
+/* Its own, not the theme's: a copy installed by an older build would win */
 QIcon app()
 {
-    return QIcon::fromTheme("qemu-gui-manager", QIcon(":/icons/qemu-gui-manager.svg"));
+    return QIcon(":/icons/qemu-gui-manager.svg");
 }
 
 }
