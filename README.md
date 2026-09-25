@@ -131,7 +131,7 @@ in its Mesa (for Xe, the Mesa patch of the repository above). A VM uses it
 with `-device virtio-vga-gl,blob=on,hostmem=4G,drm_native_context=on`
 (`virtio-gpu-gl-pci` on ARM), and with `-accel kvm,honor-guest-pat=on`,
 which Intel needs and the AMD patch relies on. The Display settings add
-it.
+it, and so does importing a script that uses native context.
 
 A guest whose Mesa has no native context for the GPU falls back to virgl
 without a word, and most distributions leave it out (Arch has it for AMD,

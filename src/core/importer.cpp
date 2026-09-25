@@ -7,6 +7,7 @@
 #include <QRegularExpression>
 
 #include "core/vmconfig.h"
+#include "core/vmhardware.h"
 
 namespace Importer {
 
@@ -213,6 +214,14 @@ std::optional<Result> importScript(const QString &script, const QString &baseDir
             continue;
         }
         args.lines << line;
+    }
+
+    /* as the Display page does: native context maps the host GPU's memory
+       with the guest's caching, write-combining, which KVM ignores without it */
+    if (VmConfig::graphics(args).nativeContext && VmConfig::accel(args).startsWith("kvm") &&
+        VmConfig::accelProperty(args, "honor-guest-pat").isEmpty()) {
+        VmConfig::setAccelProperty(args, "honor-guest-pat", "on");
+        result.notes << tr("honor-guest-pat=on was added to -accel, for DRM native context.");
     }
 
     /* QEMU runs in the VM folder: the paths from the script's become absolute */
