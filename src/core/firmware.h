@@ -22,6 +22,7 @@ struct Firmware
     QString code;                   // mapping.executable.filename
     QString varsTemplate;           // mapping.nvram-template.filename, if any
     QString format;                 // raw or qcow2
+    QString mode;                   // split, combined or stateless
     QStringList machines;           // x86_64 targets, e.g. pc-q35-*
     QStringList features;           // secure-boot, enrolled-keys, requires-smm...
 
@@ -44,9 +45,11 @@ QList<Firmware> list(const QStringList &dirs = {});
 std::optional<Firmware> find(bool secureBoot, const QString &machine = "pc-q35-10.0",
                              const QStringList &dirs = {});
 /*
- * Adds the two pflash drives of @fw to @args, copying the variable store
- * template into @vmDir (referenced relatively: QEMU runs in the VM folder),
- * and for secure boot the smm=on machine property and the secure flash.
+ * Makes @fw the firmware of @args: replaces its pflash drives (and -bios)
+ * with those of @fw, copying the variable store template into @vmDir
+ * (referenced relatively: QEMU runs in the VM folder) unless a copy is
+ * already there, and for secure boot or SMM firmware sets smm=on and the
+ * secure flash.
  */
 bool apply(ArgsFile &args, const Firmware &fw, const QString &vmDir,
            QString *error = nullptr);

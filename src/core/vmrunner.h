@@ -52,6 +52,7 @@ public:
 
 signals:
     void stateChanged(VmRunner::State state);
+    /* The start failed, QEMU stopped unexpectedly, or refused a command */
     void failed(const QString &error);
 
 private:
