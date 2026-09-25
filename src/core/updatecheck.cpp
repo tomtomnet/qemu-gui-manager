@@ -92,6 +92,8 @@ UpdateCheck::Result UpdateCheck::parse(const Project &project, const QByteArray 
     /* "ahead": the branch has commits the running one has not */
     result.newCommits = status == "ahead" || status == "diverged" ? answer["ahead_by"].toInt()
                                                                   : 0;
+    result.head = commits.isEmpty() ? (status == "identical" ? project.commit : QString())
+                                    : commits.last()["sha"].toString();
     for (qsizetype i = commits.size() - 1; i >= 0 && result.subjects.size() < kSubjects; i--) {
         result.subjects << commits[i]["commit"]["message"].toString().section('\n', 0, 0);
     }
@@ -110,6 +112,7 @@ QJsonArray UpdateCheck::toJson(const QList<Result> &results)
                                  {"newCommits", r.newCommits},
                                  {"subjects", QJsonArray::fromStringList(r.subjects)},
                                  {"url", r.url},
+                                 {"head", r.head},
                                  {"error", r.error}});
     }
     return array;
@@ -128,6 +131,7 @@ QList<UpdateCheck::Result> UpdateCheck::fromJson(const QJsonArray &json)
             r.subjects << subject.toString();
         }
         r.url = v["url"].toString();
+        r.head = v["head"].toString();
         r.error = v["error"].toString();
         results << r;
     }

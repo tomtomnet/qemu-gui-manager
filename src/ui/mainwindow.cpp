@@ -680,6 +680,7 @@ void MainWindow::buildQemu()
     if (!m_buildDialog) {
         /* not modal: the VMs stay at hand during a build */
         m_buildDialog = new QemuBuildDialog(this);
+        connect(m_buildDialog, &QemuBuildDialog::built, m_updates, &UpdateNotifier::revalidate);
         connect(m_buildDialog, &QemuBuildDialog::qemuChanged, this, [this]() {
             QemuDocs::reloadPreferred();
             m_details->refresh();

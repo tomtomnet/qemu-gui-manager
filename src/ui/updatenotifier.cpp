@@ -82,7 +82,10 @@ UpdateNotifier::UpdateNotifier(QWidget *window)
 QList<UpdateCheck::Project> UpdateNotifier::projects()
 {
     static const QRegularExpression sha("^[0-9a-f]{40}$");
-    const QString qemu = UpdateCheck::checkoutCommit(QemuBuilder::defaultSourceDir());
+    const QString source = QemuBuilder::defaultSourceDir();
+    /* the commit last built, else the one checked out (before the stamp) */
+    const QString built = QemuBuilder::builtCommit(source);
+    const QString qemu = built.isEmpty() ? UpdateCheck::checkoutCommit(source) : built;
     QList<UpdateCheck::Project> list;
 
     /* built from a git checkout */
@@ -96,6 +99,39 @@ QList<UpdateCheck::Project> UpdateNotifier::projects()
                                      QemuBuilder::defaultBranch(), qemu};
     }
     return list;
+}
+
+void UpdateNotifier::revalidate()
+{
+    const QList<UpdateCheck::Project> running = projects();
+    QList<UpdateCheck::Result> kept;
+
+    for (UpdateCheck::Result r : std::as_const(m_results)) {
+        for (const UpdateCheck::Project &p : running) {
+            if (p.name != r.project.name) {
+                continue;
+            }
+            if (p.commit != r.project.commit && p.commit == r.head) {
+                /* built the newest one GitHub told of */
+                r.project.commit = p.commit;
+                r.newCommits = 0;
+                r.subjects.clear();
+            }
+            /* another commit, unknown until the next check */
+            if (p.commit == r.project.commit) {
+                kept << r;
+            }
+        }
+    }
+    m_results = kept;
+    save();
+    updateButton();
+}
+
+void UpdateNotifier::save()
+{
+    settings().setValue("updates/results",
+                        QJsonDocument(UpdateCheck::toJson(m_results)).toJson(QJsonDocument::Compact));
 }
 
 void UpdateNotifier::maybeCheck()
@@ -166,8 +202,7 @@ void UpdateNotifier::finished(const QList<UpdateCheck::Result> &results)
     QSettings s = settings();
 
     m_results = results;
-    s.setValue("updates/results",
-               QJsonDocument(UpdateCheck::toJson(results)).toJson(QJsonDocument::Compact));
+    save();
     for (const UpdateCheck::Result &r : results) {
         if (r.limitedUntil.isValid()) {
             s.setValue("updates/notBefore", r.limitedUntil);
@@ -195,6 +230,8 @@ void UpdateNotifier::updateButton()
 
 void UpdateNotifier::showResults()
 {
+    revalidate();
+
     QDialog dialog(m_window);
     auto *layout = new QVBoxLayout(&dialog);
     auto *label = new QLabel;

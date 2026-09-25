@@ -31,6 +31,7 @@ public:
         int newCommits = -1;    // -1 when it could not tell
         QStringList subjects;   // of the newest commits, newest first
         QString url;            // the page of the changes
+        QString head;           // the newest commit of the branch then
         QString error;
         /* GitHub had too many requests from here: none before then */
         QDateTime limitedUntil;

@@ -40,6 +40,7 @@ private slots:
         UpdateCheck::Result r = UpdateCheck::parse(project, kAhead);
 
         QCOMPARE(r.newCommits, 3);
+        QCOMPARE(r.head, "3");
         QCOMPARE(r.subjects, QStringList({"Third change", "Second change", "First change"}));
         QVERIFY(r.url.endsWith("abc...main"));
         QVERIFY(r.error.isEmpty());
@@ -66,6 +67,7 @@ private slots:
         QCOMPARE(back[0].newCommits, 3);
         QCOMPARE(back[0].subjects, r.subjects);
         QCOMPARE(back[0].url, r.url);
+        QCOMPARE(back[0].head, "3");
     }
 
     void checkoutCommit()

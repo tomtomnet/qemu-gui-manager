@@ -130,6 +130,7 @@ private slots:
         QCOMPARE(build(b, o), "");
         QVERIFY(QFileInfo(QemuBuilder::binary(src)).exists());
         QCOMPARE(configureRuns(), 1);
+        QCOMPARE(QemuBuilder::builtCommit(src), git(src, {"rev-parse", "HEAD"}).trimmed());
         QVERIFY(!progress.isEmpty());
         QCOMPARE(progress.last()[0].toInt(), 2);
         QCOMPARE(progress.last()[1].toInt(), 2);
@@ -143,6 +144,10 @@ private slots:
         QCOMPARE(build(b, o), "");
         QVERIFY(QFileInfo::exists(src + "/NEWS"));
         QCOMPARE(configureRuns(), 1);
+        /* the new one */
+        QCOMPARE(QemuBuilder::builtCommit(src), git(src, {"rev-parse", "HEAD"}).trimmed());
+        QCOMPARE(QemuBuilder::builtCommit(src),
+                 git(m_tmp.filePath("remote"), {"rev-parse", "HEAD"}).trimmed());
 
         /* other options, configured again */
         o.configureArgs << "--disable-docs";

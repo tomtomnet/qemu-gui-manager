@@ -186,6 +186,7 @@ void QemuBuildDialog::finished(const QString &error)
         version.waitForFinished(5000);
         m_step->setText(tr("Built: %1")
                             .arg(QString::fromLocal8Bit(version.readAll()).section('\n', 0, 0)));
+        emit built();
     } else {
         m_step->setText(error + tr(", see the log below."));
     }

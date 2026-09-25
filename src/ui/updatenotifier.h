@@ -28,6 +28,8 @@ public:
     QToolButton *button() const { return m_button; }
     /* Help > Check for Updates */
     void checkNow();
+    /* What runs changed, e.g. File > Build QEMU built: the answers kept follow */
+    void revalidate();
 
     /* What this computer runs, as far as it can tell */
     static QList<UpdateCheck::Project> projects();
@@ -41,6 +43,7 @@ private:
     void finished(const QList<UpdateCheck::Result> &results);
     void showResults();
     void updateButton();
+    void save();
 
     QWidget *m_window;
     UpdateCheck *m_check;

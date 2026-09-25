@@ -63,6 +63,8 @@ public:
     /* build-qgm in @sourceDir */
     static QString buildDir(const QString &sourceDir);
     static QString binary(const QString &sourceDir);
+    /* The commit of @sourceDir the last build that ended well built; empty if none */
+    static QString builtCommit(const QString &sourceDir);
 
     static QString defaultVirglDir();
     static QString defaultVirglUrl();

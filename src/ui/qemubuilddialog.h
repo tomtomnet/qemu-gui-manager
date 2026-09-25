@@ -27,6 +27,8 @@ public:
 signals:
     /* The binary chosen as the QEMU of the VMs */
     void qemuChanged(const QString &binary);
+    /* A build ended well */
+    void built();
 
 protected:
     void closeEvent(QCloseEvent *event) override;

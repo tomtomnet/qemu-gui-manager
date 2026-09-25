@@ -10,6 +10,7 @@
 #include <QUrl>
 
 #include "core/paths.h"
+#include "core/updatecheck.h"
 
 /* The options the build tree was configured with, to know when to redo it */
 static const char kStamp[] = "/qgm-configure-args";
@@ -128,6 +129,14 @@ QStringList QemuBuilder::defaultConfigureArgs()
 QString QemuBuilder::buildDir(const QString &sourceDir)
 {
     return sourceDir + "/build-qgm";
+}
+
+QString QemuBuilder::builtCommit(const QString &sourceDir)
+{
+    QFile stamp(buildDir(sourceDir) + "/qgm-built-commit");
+
+    return stamp.open(QIODevice::ReadOnly) ? QString::fromLatin1(stamp.readAll()).trimmed()
+                                           : QString();
 }
 
 QString QemuBuilder::binary(const QString &sourceDir)
@@ -339,6 +348,11 @@ void QemuBuilder::cancel()
 void QemuBuilder::runNext()
 {
     if (m_steps.isEmpty()) {
+        /* for the update check: what the binary is built from */
+        QFile stamp(buildDir(m_options.sourceDir) + "/qgm-built-commit");
+        if (stamp.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            stamp.write(UpdateCheck::checkoutCommit(m_options.sourceDir).toLatin1() + '\n');
+        }
         emit finished({});
         return;
     }
