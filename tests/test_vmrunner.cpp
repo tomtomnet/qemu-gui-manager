@@ -265,6 +265,34 @@ private slots:
         QCOMPARE(runner.state(), VmRunner::State::Stopped);
     }
 
+    /* a firmware copy deleted from the VM folder comes back at the start */
+    void missingFirmwareCopy()
+    {
+        const QString code = "/usr/share/edk2/ovmf/OVMF_CODE_4M.qcow2";
+        const QString vars = "/usr/share/edk2/ovmf/OVMF_VARS_4M.qcow2";
+        const QString dir = tmp.filePath("firmware");
+        if (!QFileInfo::exists(code) || !QFileInfo::exists(vars)) {
+            QSKIP("no edk2-ovmf with 4M qcow2 images");
+        }
+        QDir().mkpath(dir);
+        QVERIFY(QFile::copy(code, dir + "/OVMF_CODE_4M.qcow2"));
+        VmRunner runner(id, dir);
+        QSignalSpy failed(&runner, &VmRunner::failed);
+
+        runner.start(ArgsFile::parse(
+            QByteArray(kHeadless) +
+            "-drive if=pflash,format=qcow2,unit=0,readonly=on,file=OVMF_CODE_4M.qcow2\n"
+            "-drive if=pflash,format=qcow2,unit=1,file=OVMF_VARS_4M.qcow2\n"));
+        QTRY_COMPARE_WITH_TIMEOUT(runner.state(), VmRunner::State::Running, 20000);
+        QVERIFY(QFileInfo(dir + "/OVMF_VARS_4M.qcow2").isWritable());
+        QVERIFY(read(runner.logPath())
+                    .contains("qemu-gui-manager: OVMF_VARS_4M.qcow2 was missing: a new copy of " +
+                              vars + '\n'));
+        runner.forceOff();
+        QTRY_COMPARE_WITH_TIMEOUT(runner.state(), VmRunner::State::Stopped, 15000);
+        QCOMPARE(failed.size(), 0);
+    }
+
     void noQemu()
     {
         VmRunner runner(id, tmp.path());

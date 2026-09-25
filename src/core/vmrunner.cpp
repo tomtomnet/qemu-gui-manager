@@ -14,6 +14,7 @@
 
 #include <csignal>
 
+#include "core/firmwarefiles.h"
 #include "core/guestagent.h"
 #include "core/paths.h"
 #include "core/qmpclient.h"
@@ -725,6 +726,18 @@ void VmRunner::start(const ArgsFile &args)
         }
     }
 
+    /* firmware copies that were deleted: new ones from the templates they came from */
+    QStringList remade;
+    for (const FirmwareFiles::File &f : FirmwareFiles::list(args, d->dir)) {
+        QString error;
+        if (QFileInfo::exists(f.path)) {
+            continue;
+        }
+        remade << (FirmwareFiles::recreate(f, &error)
+                       ? tr("%1 was missing: a new copy of %2").arg(f.name(), f.templatePath)
+                       : tr("%1 is missing: %2").arg(f.name(), error));
+    }
+
     d->removeRuntimeFiles();
     QFile log(d->logPath());
     if (!log.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
@@ -735,6 +748,9 @@ void VmRunner::start(const ArgsFile &args)
                   .arg(QDateTime::currentDateTime().toString(Qt::ISODate),
                        shellQuote(commandLine(args)))
                   .toUtf8());
+    for (const QString &line : std::as_const(remade)) {
+        log.write(("qemu-gui-manager: " + line + '\n').toUtf8());
+    }
     log.close();
 
     d->setState(State::Starting);
