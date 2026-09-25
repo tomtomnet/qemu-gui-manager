@@ -68,7 +68,9 @@ private:
             const QJsonObject args = m["arguments"].toObject();
 
             if (command == "guest-sync-delimited") {
-                client->write(garbage + "\xff");
+                /* qemu-ga takes the 0xFF for a stray byte, and says so */
+                client->write(garbage + "{\"error\": {\"class\": \"GenericError\", \"desc\": "
+                                        "\"JSON parse error, stray '\\xff'\"}}\n\xff");
                 reply(m, m["id"], args["id"]);
             } else if (command == "guest-exec") {
                 QStringList argv{args["path"].toString()};

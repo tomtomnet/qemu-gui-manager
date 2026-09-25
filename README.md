@@ -124,15 +124,25 @@ virtiofs device to QEMU. virtiofs needs the guest RAM in shared memory. The
 Shared Folders page sets that up when you add a folder.
 
 The guest can mount a folder by itself at each start, where the share's
-`mount=` says (`/mnt/<name>` by default for new folders). For that it
-needs the QEMU guest agent, which starts by itself once installed:
+`mount=` says (`/mnt/<name>` by default for new folders). The manager
+tells the guest's systemd, 254 and later (Fedora 39, Debian 13, Ubuntu
+24.04 and later), through a credential in SMBIOS:
+`-smbios type=11,value=io.systemd.credential.binary:fstab.extra=...`.
+systemd mounts those folders at boot, as if they were in `/etc/fstab`.
+The guest needs nothing installed for that.
 
-    sudo dnf install qemu-guest-agent
+Older guests need the QEMU guest agent, which starts by itself once
+installed:
 
-The manager gives the VM the agent's channel, and when the agent comes
-up at boot, it has it create the folder and mount the share there, as
-root. It says so in the status bar, or tells you what went wrong. To mount
-a folder by hand instead:
+    sudo apt install qemu-guest-agent
+
+The manager gives the VM the agent's channel. When the agent comes up at
+boot, the manager has it create the folder and mount the share there, as
+root, unless systemd has already. The status bar says when the folders
+are mounted, and a message says what went wrong. SELinux, as in Fedora
+and RHEL, confines the agent: it may not mount, so there only systemd's
+mounts work (RHEL 9 and its clones have systemd 252). To mount a folder
+by hand instead:
 
     sudo mount -t virtiofs public /mnt/public
 

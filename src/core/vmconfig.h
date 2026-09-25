@@ -55,7 +55,7 @@ struct Share {
     QString path;           // host folder
     QString cache = "auto"; // virtiofsd --cache: auto, always or never
     bool readonly = false;
-    /* Where the guest mounts it at start, through its agent, if anywhere */
+    /* Where the guest mounts it at start, if anywhere: systemd or its agent */
     QString mount = {};
 };
 QList<Share> shares(const ArgsFile &args);

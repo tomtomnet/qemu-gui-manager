@@ -18,6 +18,7 @@
 #include "core/paths.h"
 #include "core/qmpclient.h"
 #include "core/vmconfig.h"
+#include "core/vmhardware.h"
 
 static const int kPollMs = 50;
 /* virtiofsd opening its socket */
@@ -71,23 +72,27 @@ static void signalIfOurs(qint64 pid, const QString &marker, int sig)
 static const char kAgentPort[] = "qgm-ga-port";
 
 /*
- * sh -c SCRIPT TAG DIR OPTIONS, as root in the guest: mounts a shared
- * folder where asked, unless it is there already
+ * sh -c SCRIPT TAG DIR OPTIONS TAG-AS-IN-MOUNTINFO, as root in the guest:
+ * mounts a shared folder where asked, unless the guest has mounted it
+ * already, as systemd does at boot from the fstab.extra credential.  Ends
+ * with kConfined when SELinux keeps qemu-ga from mounting, as on Fedora:
+ * its commands may neither run mount nor make folders in /mnt.
  */
+static const int kConfined = 77;     // the script's exit 77
 static const char kMount[] =
-    "mkdir -p \"$1\" || exit 1\n"
-    "if command -v mountpoint >/dev/null 2>&1 && mountpoint -q \"$1\"; then exit 0; fi\n"
-    "exec mount -t virtiofs -o \"$2\" \"$0\" \"$1\"\n";
+    "umask 022\n"
+    "while read -r line; do\n"
+    "    case $line in *\" - virtiofs $3 \"*) exit 0 ;; esac\n"
+    "done </proc/self/mountinfo\n"
+    "mkdir -p \"$1\" && mount -t virtiofs -o \"$2\" \"$0\" \"$1\" && exit 0\n"
+    "grep -qs qemu_ga_t /proc/self/attr/current && exit 77\n"
+    "exit 1\n";
 
-/* The shares to mount in the guest, if the manager adds the agent's port */
+/* The shares the guest mounts at start */
 static QList<VmConfig::Share> sharesToMount(const ArgsFile &args)
 {
     QList<VmConfig::Share> list;
 
-    /* a port of its own, that the manager cannot talk to */
-    if (args.toText().contains("org.qemu.guest_agent.0")) {
-        return list;
-    }
     for (const VmConfig::Share &s : VmConfig::shares(args)) {
         if (!s.mount.isEmpty()) {
             list << s;
@@ -96,11 +101,56 @@ static QList<VmConfig::Share> sharesToMount(const ArgsFile &args)
     return list;
 }
 
+/* Unless the VM has an agent port of its own, which the manager cannot share */
+static bool addsAgent(const ArgsFile &args)
+{
+    return !sharesToMount(args).isEmpty() && !args.toText().contains("org.qemu.guest_agent.0");
+}
+
+/* As fstab and /proc/self/mountinfo write spaces and the like: \040 */
+static QString mountEscape(QString s)
+{
+    return s.replace('\\', "\\134").replace(' ', "\\040").replace('\t', "\\011")
+        .replace('\n', "\\012");
+}
+
+static QString fstabLine(const VmConfig::Share &s)
+{
+    return QString("%1 %2 virtiofs %3 0 0")
+        .arg(mountEscape(s.tag), mountEscape(s.mount), s.readonly ? "ro,nofail" : "nofail");
+}
+
 /* The QEMU of the VM's #qemu directive, else the one in the preferences */
 static QString qemuFor(const ArgsFile &args)
 {
     const QString own = VmConfig::qemuBinary(args);
     return own.isEmpty() ? Paths::qemuBinary() : own;
+}
+
+/*
+ * The mounts for systemd in the guest, 254 and later, which reads them from
+ * SMBIOS at boot and mounts them as if they were in /etc/fstab: they need
+ * no guest agent, and SELinux lets systemd mount.  Only targets with
+ * -smbios get them; a QEMU named otherwise, like qemu-kvm, is taken for
+ * one of the host's architecture.
+ */
+static QString fstabExtra(const ArgsFile &args)
+{
+    static const QRegularExpression target("^qemu-system-([a-z0-9_]+)");
+    static const QStringList smbios{"x86_64", "i386",    "aarch64",    "arm",
+                                    "riscv64", "riscv32", "loongarch64"};
+    const QRegularExpressionMatch m = target.match(QFileInfo(qemuFor(args)).fileName());
+    QString lines;
+
+    /* a credential of its own; isapc refuses type 11, and has no PCI for virtiofs */
+    if (!smbios.contains(m.hasMatch() ? m.captured(1) : Paths::hostArch()) ||
+        args.toText().contains("fstab.extra") || VmConfig::machineType(args) == "isapc") {
+        return {};
+    }
+    for (const VmConfig::Share &s : sharesToMount(args)) {
+        lines += fstabLine(s) + '\n';
+    }
+    return lines;
 }
 
 static QString shellQuote(const QStringList &args)
@@ -471,7 +521,7 @@ void VmRunner::Private::mountShares()
 {
     const QList<VmConfig::Share> shares = sharesToMount(args);
 
-    if (shares.isEmpty()) {
+    if (!addsAgent(args)) {
         return;
     }
     if (agent) {
@@ -495,10 +545,19 @@ void VmRunner::Private::mountNext(QList<VmConfig::Share> shares, QStringList mou
         return;
     }
     const VmConfig::Share share = shares.takeFirst();
-    agent->exec("/bin/sh", {"-c", kMount, share.tag, share.mount, share.readonly ? "ro" : "rw"},
+    agent->exec("/bin/sh",
+                {"-c", kMount, share.tag, share.mount, share.readonly ? "ro" : "rw",
+                 mountEscape(share.tag)},
                 [=, this](const GuestAgent::ExecResult &r) mutable {
         if (!r.error.isEmpty()) {
             problems << QString("%1: %2").arg(share.mount, r.error);
+        } else if (r.exitCode == kConfined) {
+            problems << QString("%1: %2").arg(
+                share.mount,
+                VmRunner::tr("the guest did not mount it at boot (systemd 254 and later do), "
+                             "and SELinux keeps the guest agent from mounting it. Mount it "
+                             "with this line in the guest's /etc/fstab:\n%1")
+                    .arg(fstabLine(share)));
         } else if (r.exitCode != 0) {
             problems << QString("%1: %2").arg(
                 share.mount, r.err.trimmed().isEmpty()
@@ -596,8 +655,14 @@ QStringList VmRunner::commandLine(const ArgsFile &args) const
                 << QString("vhost-user-fs-pci,queue-size=1024,chardev=qgm-fs%1,tag=%2")
                        .arg(QString::number(i), OptionValue::escape(shares[i].tag));
     }
-    /* qemu-ga in the guest mounts the shares */
-    if (!sharesToMount(args).isEmpty()) {
+    /* systemd in the guest mounts the shares at boot, else qemu-ga does */
+    const QString fstab = fstabExtra(args);
+    if (!fstab.isEmpty()) {
+        command << "-smbios"
+                << "type=11,value=io.systemd.credential.binary:fstab.extra=" +
+                       QString::fromLatin1(fstab.toUtf8().toBase64());
+    }
+    if (addsAgent(args)) {
         command << "-chardev"
                 << QString("socket,id=qgm-ga,path=%1,server=on,wait=off")
                        .arg(OptionValue::escape(d->agentPath()))

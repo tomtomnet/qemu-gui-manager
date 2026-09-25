@@ -1361,10 +1361,11 @@ void SharesPage::updateHints()
 
     const QString tag = selected ? m_shares[row].tag : QString("TAG");
     if (selected && !m_shares[row].mount.isEmpty()) {
-        m_mount->setText(tr("The guest mounts it at %1 at each start, through the QEMU guest "
-                            "agent, which it needs:\n"
-                            "  sudo dnf install qemu-guest-agent\n"
-                            "(apt or pacman on other distributions; it starts by itself.)\n"
+        m_mount->setText(tr("The guest mounts it at %1 at each start: systemd 254 and later "
+                            "do so at boot (Fedora 39, Debian 13, Ubuntu 24.04 and later).\n"
+                            "Older guests need the QEMU guest agent:\n"
+                            "  sudo apt install qemu-guest-agent\n"
+                            "(dnf or pacman on other distributions; it starts by itself.)\n"
                             "\n"
                             "By hand instead:\n"
                             "  sudo mount -t virtiofs %2 %1")
@@ -1448,8 +1449,9 @@ ShareDialog::ShareDialog(const VmConfig::Share &share, const QStringList &otherT
         mountRow->addWidget(m_mountDir, 1);
         form->addRow(QString(), mountRow);
     }
-    form->addRow(QString(), Widgets::hint(tr("The guest needs the QEMU guest agent for that: "
-                                             "sudo dnf install qemu-guest-agent")));
+    form->addRow(QString(), Widgets::hint(tr("systemd 254 and later mount it at boot; older "
+                                             "guests need the QEMU guest agent "
+                                             "(qemu-guest-agent).")));
     layout->addLayout(form);
     layout->addWidget(m_error);
     layout->addStretch();

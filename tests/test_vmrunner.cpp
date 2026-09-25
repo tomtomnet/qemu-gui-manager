@@ -126,8 +126,49 @@ private slots:
         QVERIFY(mount.contains("socket,id=qgm-ga,path=" + runDir + "/qga.sock,server=on,wait=off"));
         QVERIFY(mount.contains("virtserialport,bus=qgm-serial.0,chardev=qgm-ga,"
                                "name=org.qemu.guest_agent.0,id=qgm-ga-port"));
-        QCOMPARE(mount.size(), noMount.size() + 6);
+        QCOMPARE(mount.size(), noMount.size() + 6 + 2);     // and -smbios
         QVERIFY(!own.join(' ').contains("qgm-ga"));
+    }
+
+    /* systemd in the guest mounts what it reads from SMBIOS, as if in /etc/fstab */
+    void fstabCredential()
+    {
+        const VmRunner runner(id, tmp.path());
+        auto fstab = [&runner](const QString &args) {
+            const QStringList command = runner.commandLine(ArgsFile::parse(args));
+            const QString prefix = "type=11,value=io.systemd.credential.binary:fstab.extra=";
+            QStringList found;
+
+            for (qsizetype i = 1; i < command.size(); i++) {
+                if (command[i - 1] == "-smbios" && command[i].startsWith(prefix)) {
+                    found << QString::fromUtf8(
+                        QByteArray::fromBase64(command[i].mid(prefix.size()).toLatin1()));
+                }
+            }
+            return found.isEmpty() ? QString("none") : found.join("+");
+        };
+
+        QCOMPARE(fstab("#share tag=pub,path=/home/x,mount=/mnt/pub\n"
+                       "#share tag=docs,path=/home/y,readonly=on,mount=/home/me/My docs\n"
+                       "#share tag=other,path=/home/z\n"),
+                 "pub /mnt/pub virtiofs nofail 0 0\n"
+                 "docs /home/me/My\\040docs virtiofs ro,nofail 0 0\n");
+        /* with an agent of its own too */
+        QCOMPARE(fstab("#share tag=pub,path=/home/x,mount=/mnt/pub\n"
+                       "-device virtserialport,chardev=ga,name=org.qemu.guest_agent.0\n"),
+                 "pub /mnt/pub virtiofs nofail 0 0\n");
+        QCOMPARE(fstab("#share tag=pub,path=/home/x\n"), "none");
+        /* its own credential */
+        QCOMPARE(fstab("#share tag=pub,path=/home/x,mount=/mnt/pub\n"
+                       "-smbios type=11,value=io.systemd.credential:fstab.extra=a /b none bind\n"),
+                 "none");
+        /* targets without -smbios */
+        QCOMPARE(fstab("#qemu /opt/qemu/bin/qemu-system-ppc64\n"
+                       "#share tag=pub,path=/home/x,mount=/mnt/pub\n"), "none");
+        QCOMPARE(fstab("#qemu /opt/qemu/bin/qemu-system-aarch64\n"
+                       "#share tag=pub,path=/home/x,mount=/mnt/pub\n"),
+                 "pub /mnt/pub virtiofs nofail 0 0\n");
+        QCOMPARE(fstab("-machine isapc\n#share tag=pub,path=/home/x,mount=/mnt/pub\n"), "none");
     }
 
     void longIdsKeepShortSockets()
