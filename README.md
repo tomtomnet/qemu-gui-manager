@@ -19,16 +19,19 @@ fork whose SDL window has a menu, but it runs any `qemu-system-x86_64`.
 
 - A list of your VMs with their state. Start, pause, shut down, reset or
   force off. VMs keep running when you close the manager, and it picks them
-  up again when it starts.
+  up again when it starts. A double click starts a VM, or brings the window
+  of a running one to the front: on KDE Plasma, through KWin, since Wayland
+  lets no app raise the window of another.
 - New VMs get modern defaults: q35 with KVM and the host CPU, UEFI from your
   distribution's firmware (optionally with Secure Boot), virtio disk,
   network and GPU, SDL with OpenGL, a USB tablet, PipeWire sound and the
   shared clipboard.
-- Two tabs beside the list for the selected VM: its details, and its
-  settings, with their pages down the side: memory and CPUs, boot, display
-  and 3D acceleration, disks, shared folders (virtiofs), PCI passthrough
-  (vfio) and USB passthrough. Changes wait from page to page until you
-  apply them, and the manager asks before it drops any.
+- Tabs beside the list for the selected VM: its details; its settings,
+  with their pages down the side: memory and CPUs, boot, display and 3D
+  acceleration, disks, shared folders (virtiofs), PCI passthrough (vfio)
+  and USB passthrough; and its log, which follows what QEMU writes.
+  Changes to the settings wait from page to page until you apply them, and
+  the manager asks before it drops any.
 - The full argument list in a plain-text editor, with highlighting, checks
   and completion.
 - A QEMU reference: every option, device (with its properties), machine, CPU

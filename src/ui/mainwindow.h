@@ -63,6 +63,7 @@ private:
     void cloneVm();
     void remove();
     void showLog();
+    void showWindow();
     void showCommandLine();
 
     VmStore *m_store;
@@ -90,6 +91,7 @@ private:
     QAction *m_build;
     QAction *m_settings;
     QAction *m_start;
+    QAction *m_showWindow;
     QAction *m_pause;
     QAction *m_shutDown;
     QAction *m_reset;

@@ -101,6 +101,11 @@ void Form::addSection(const QString &title)
 
 namespace Widgets {
 
+int em(const QWidget *widget)
+{
+    return widget->fontMetrics().height();
+}
+
 QLabel *heading(const QString &text)
 {
     auto *label = new QLabel(text);

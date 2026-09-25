@@ -55,6 +55,7 @@ GeneralPage::GeneralPage(Vm *vm, QWidget *parent) : SettingsPage(parent), m_name
                                  QDir::toNativeSeparators(vm->dir()).toHtmlEscaped()));
 
     m_name->setObjectName("name");
+    m_name->setMaximumWidth(Widgets::em(this) * 20);
     form->addRow(tr("&Name:"), m_name);
     form->addRow(tr("Folder:"), folder);
     form->addRow(QString(), Widgets::hint(tr("The folder holds the arguments (vm.args), the disks the "
@@ -108,7 +109,6 @@ SystemPage::SystemPage(QWidget *parent)
     auto *form = Widgets::form();
     auto *memoryRow = new QHBoxLayout;
     auto *cpuRow = new QHBoxLayout;
-    auto *topologyRow = new QHBoxLayout;
     const qint64 hostMiB = Widgets::hostMemoryMiB();
     const int hostCpus = QThread::idealThreadCount();
 
@@ -120,29 +120,27 @@ SystemPage::SystemPage(QWidget *parent)
     m_memorySlider->setRange(0, m_memory->maximum() / 256);
     m_memorySlider->setPageStep(4);
     Widgets::link(m_memorySlider, m_memory, 256);
+    /* sliders of a size to aim with, not the width of the window */
+    m_memorySlider->setMaximumWidth(Widgets::em(this) * 16);
     memoryRow->addWidget(m_memorySlider, 1);
     memoryRow->addWidget(m_memory);
+    memoryRow->addStretch();
 
     m_cpus->setObjectName("cpus");
     m_cpus->setRange(1, qMax(hostCpus, 1));
     m_cpuSlider->setRange(1, m_cpus->maximum());
     m_cpuSlider->setPageStep(2);
     Widgets::link(m_cpuSlider, m_cpus, 1);
+    m_cpuSlider->setMaximumWidth(Widgets::em(this) * 16);
     cpuRow->addWidget(m_cpuSlider, 1);
     cpuRow->addWidget(m_cpus);
+    cpuRow->addStretch();
 
     for (QSpinBox *spin : {m_sockets, m_cores, m_threads}) {
         spin->setRange(1, 1024);
         spin->setEnabled(false);
         connect(spin, &QSpinBox::valueChanged, this, &SystemPage::updateTopology);
     }
-    topologyRow->addWidget(new QLabel(tr("Sockets:")));
-    topologyRow->addWidget(m_sockets);
-    topologyRow->addWidget(new QLabel(tr("Cores:")));
-    topologyRow->addWidget(m_cores);
-    topologyRow->addWidget(new QLabel(tr("Threads:")));
-    topologyRow->addWidget(m_threads);
-    topologyRow->addStretch();
     connect(m_topology, &QCheckBox::toggled, this, [this](bool on) {
         for (QSpinBox *spin : {m_sockets, m_cores, m_threads}) {
             spin->setEnabled(on);
@@ -174,7 +172,9 @@ SystemPage::SystemPage(QWidget *parent)
                                      .arg(QString::number(hostMiB / 1024.0, 'f', 1))));
     form->addRow(Widgets::label(tr("&Processors:"), m_cpus), cpuRow);
     form->addRow(QString(), m_topology);
-    form->addRow(QString(), topologyRow);
+    form->addRow(tr("Sockets:"), m_sockets);
+    form->addRow(tr("Cores:"), m_cores);
+    form->addRow(tr("Threads:"), m_threads);
     form->addRow(tr("Processor mode&l:"), m_model);
     form->addRow(QString(), m_modelInfo);
     form->addRow(tr("Ma&chine:"), m_machine);
@@ -193,6 +193,7 @@ SystemPage::SystemPage(QWidget *parent)
     qemuGroup->addButton(m_ownQemu);
     ownRow->addWidget(m_ownQemu);
     ownRow->addWidget(Widgets::browseRow(m_qemuPath, tr("QEMU Binary")), 1);
+    m_qemuPath->parentWidget()->setMaximumWidth(Widgets::em(this) * 30);
     qemu->addWidget(m_defaultQemu);
     qemu->addLayout(ownRow);
     form->addRow(Widgets::label(tr("&QEMU:"), m_defaultQemu), qemu);
@@ -233,9 +234,11 @@ void SystemPage::updateQemu()
     const QString preferred = Paths::qemuBinary();
     QemuDocs *docs = QemuDocs::of(chosenQemu());
 
+    /* the path in a tool tip: a long one would widen the page */
     m_defaultQemu->setText(preferred.isEmpty()
                                ? tr("The &default QEMU, from the preferences: not found")
-                               : tr("The &default QEMU: %1").arg(preferred));
+                               : tr("The &default QEMU, from the preferences"));
+    m_defaultQemu->setToolTip(preferred);
     m_qemuPath->parentWidget()->setEnabled(m_ownQemu->isChecked());
     if (docs != m_docs) {
         if (m_docs) {
@@ -618,8 +621,7 @@ bool SystemPage::commit(const ArgsFile &args, const QString &vmDir, QString *err
 DisplayPage::DisplayPage(QWidget *parent)
     : SettingsPage(parent), m_custom(new Banner(Banner::Information)), m_kind(new QComboBox),
       m_device(new QComboBox),
-      m_nativeContext(new QCheckBox(tr("DRM &native context: the guest uses the GPU through "
-                                       "its own driver"))),
+      m_nativeContext(new QCheckBox(tr("DRM &native context"))),
       m_venus(new QCheckBox(tr("&Vulkan through Venus"))), m_hostmem(new QSpinBox),
       m_window(new QComboBox)
 {
@@ -645,8 +647,8 @@ DisplayPage::DisplayPage(QWidget *parent)
     form->addSection(tr("3D acceleration"));
     form->addRow(QString(), m_nativeContext);
     form->addRow(QString(), Widgets::hint(
-        tr("Much faster than virgl. It needs a virglrenderer built with native context for "
-           "the GPU of this computer, whose renderer depends on the GPU: Intel (Xe or i915), "
+        tr("The guest uses the GPU through its own driver: much faster than virgl. It needs a "
+           "virglrenderer built with native context for the GPU of this computer, whose renderer depends on the GPU: Intel (Xe or i915), "
            "AMD, Qualcomm, Apple (Asahi) or Arm Mali. File > Build QEMU builds one. The guest "
            "needs native context support in Mesa too. With KVM, the accelerator gets "
            "honor-guest-pat=on, which Intel GPUs need.")));
@@ -1239,7 +1241,9 @@ SharesPage::SharesPage(QWidget *parent)
     tableRow->addWidget(m_table, 1);
     tableRow->addLayout(buttons);
 
-    m_mount->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+    /* prose that wraps, and commands to copy: the page does not scroll across */
+    m_mount->setTextFormat(Qt::RichText);
+    m_mount->setWordWrap(true);
     m_mount->setTextInteractionFlags(Qt::TextSelectableByMouse);
 
     layout->addWidget(m_virtiofsd);
@@ -1328,6 +1332,14 @@ void SharesPage::fill()
     updateHints();
 }
 
+/* Commands to copy, in the fixed font */
+static QString commands(const QStringList &lines)
+{
+    return QString("<pre style=\"font-family: '%1'\">%2</pre>")
+        .arg(QFontDatabase::systemFont(QFontDatabase::FixedFont).family(),
+             lines.join('\n').toHtmlEscaped());
+}
+
 void SharesPage::updateHints()
 {
     const int row = m_table->currentRow();
@@ -1353,25 +1365,24 @@ void SharesPage::updateHints()
 
     const QString tag = selected ? m_shares[row].tag : QString("TAG");
     if (selected && !m_shares[row].mount.isEmpty()) {
-        m_mount->setText(tr("The guest mounts it at %1 at each start: systemd 254 and later "
-                            "do so at boot (Fedora 39, Debian 13, Ubuntu 24.04 and later).\n"
-                            "Older guests need the QEMU guest agent:\n"
-                            "  sudo apt install qemu-guest-agent\n"
-                            "(dnf or pacman on other distributions; it starts by itself.)\n"
-                            "\n"
-                            "By hand instead:\n"
-                            "  sudo mount -t virtiofs %2 %1")
-                             .arg(m_shares[row].mount, tag));
+        const QString mount = m_shares[row].mount;
+        m_mount->setText(
+            "<p>" +
+            tr("The guest mounts it at <b>%1</b> at each start. systemd 254 and later do so at "
+               "boot (Fedora 39, Debian 13, Ubuntu 24.04 and later); older guests need the QEMU "
+               "guest agent, the qemu-guest-agent package, which starts by itself once "
+               "installed.")
+                .arg(mount.toHtmlEscaped()) +
+            "</p><p>" + tr("By hand instead:") + "</p>" +
+            commands({QString("sudo mount -t virtiofs %1 %2").arg(tag, mount)}));
         return;
     }
     const QString mount = "/mnt/" + tag;
-    m_mount->setText(tr("Mount it:\n"
-                        "  sudo mkdir -p %1\n"
-                        "  sudo mount -t virtiofs %2 %1\n"
-                        "\n"
-                        "Or mount it at boot, with this line in /etc/fstab:\n"
-                        "  %2  %1  virtiofs  defaults,nofail  0  0")
-                         .arg(mount, tag));
+    m_mount->setText("<p>" + tr("Mount it:") + "</p>" +
+                     commands({QString("sudo mkdir -p %1").arg(mount),
+                               QString("sudo mount -t virtiofs %1 %2").arg(tag, mount)}) +
+                     "<p>" + tr("Or mount it at boot, with this line in /etc/fstab:") + "</p>" +
+                     commands({QString("%1 %2 virtiofs defaults,nofail 0 0").arg(tag, mount)}));
 }
 
 void SharesPage::edit(int row)

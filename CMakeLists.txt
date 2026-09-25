@@ -5,7 +5,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-find_package(Qt6 6.4 REQUIRED COMPONENTS Core Concurrent Gui Network Widgets)
+find_package(Qt6 6.4 REQUIRED COMPONENTS Core Concurrent DBus Gui Network Widgets)
 qt_standard_project_setup()
 
 # Everything but the windows, so that tests can use it
@@ -62,6 +62,8 @@ qt_add_executable(qemu-gui-manager
     src/ui/icons.h
     src/ui/importdialog.cpp
     src/ui/importdialog.h
+    src/ui/logview.cpp
+    src/ui/logview.h
     src/ui/mainwindow.cpp
     src/ui/mainwindow.h
     src/ui/memorymonitor.cpp
@@ -88,12 +90,14 @@ qt_add_executable(qemu-gui-manager
     src/ui/vmdetails.h
     src/ui/vmpane.cpp
     src/ui/vmpane.h
+    src/ui/vmwindow.cpp
+    src/ui/vmwindow.h
     src/ui/widgets.cpp
     src/ui/widgets.h
 )
 qt_add_resources(qemu-gui-manager icons PREFIX /icons BASE data
     FILES data/qemu-gui-manager.svg)
-target_link_libraries(qemu-gui-manager PRIVATE qgm_core Qt6::Widgets)
+target_link_libraries(qemu-gui-manager PRIVATE qgm_core Qt6::DBus Qt6::Widgets)
 target_compile_definitions(qemu-gui-manager PRIVATE QGM_VERSION="${PROJECT_VERSION}")
 target_compile_options(qemu-gui-manager PRIVATE -Wall -Wextra)
 

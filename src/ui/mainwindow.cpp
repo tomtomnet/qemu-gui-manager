@@ -27,6 +27,7 @@
 #include "core/paths.h"
 #include "core/qemuinfo.h"
 #include "core/vmconfig.h"
+#include "core/vmhardware.h"
 #include "core/vmrunner.h"
 #include "core/vmstore.h"
 #include "ui/clonedialog.h"
@@ -43,6 +44,7 @@
 #include "ui/usbaccess.h"
 #include "ui/vmdetails.h"
 #include "ui/vmpane.h"
+#include "ui/vmwindow.h"
 #include "ui/widgets.h"
 
 enum { IdRole = Qt::UserRole, StateRole, StateColorRole };
@@ -101,6 +103,15 @@ static QIcon vmIcon(VmRunner::State state)
 }
 
 /* The name in bold, the state under it */
+/* QEMU shows the VM in a window of its own: SDL or GTK, its default being one of them */
+static bool hasWindow(const Vm *vm)
+{
+    const VmConfig::Graphics g = VmConfig::graphics(vm->args());
+
+    return g.custom != "-nographic" &&
+           (g.display.isEmpty() || g.display == "sdl" || g.display == "gtk");
+}
+
 class VmItemDelegate : public QStyledItemDelegate
 {
 public:
@@ -211,9 +222,12 @@ MainWindow::MainWindow(VmStore *store, QWidget *parent)
 
     connect(create, &QPushButton::clicked, m_new, &QAction::trigger);
     connect(m_list, &QListWidget::currentItemChanged, this, &MainWindow::currentChanged);
+    /* a double click starts the VM, or brings its window up */
     connect(m_list, &QListWidget::itemActivated, this, [this]() {
         if (m_start->isEnabled()) {
             start();
+        } else if (m_showWindow->isEnabled()) {
+            showWindow();
         }
     });
     connect(m_list, &QListWidget::customContextMenuRequested, this, [this](const QPoint &pos) {
@@ -221,7 +235,7 @@ MainWindow::MainWindow(VmStore *store, QWidget *parent)
             return;
         }
         QMenu menu;
-        menu.addActions({m_start, m_pause, m_shutDown, m_reset, m_forceOff});
+        menu.addActions({m_start, m_showWindow, m_pause, m_shutDown, m_reset, m_forceOff});
         menu.addSeparator();
         menu.addActions({m_settings, m_log, m_folder, m_command});
         menu.addSeparator();
@@ -248,8 +262,7 @@ MainWindow::MainWindow(VmStore *store, QWidget *parent)
     }
     currentChanged();
     m_pane->setPage(VmPane::Page(settings.value("settings/page").toInt()));
-    m_pane->setTab(settings.value("mainwindow/tab").toInt() > 0 ? VmPane::Settings
-                                                                : VmPane::Details);
+    m_pane->setTab(VmPane::Tab(settings.value("mainwindow/tab").toInt()));
     updateStatus();
 }
 
@@ -280,6 +293,9 @@ void MainWindow::createActions()
     connect(m_settings, &QAction::triggered, this, [this]() { openSettings(current()); });
     m_start = action(tr("S&tart"), {"media-playback-start"}, QStyle::SP_MediaPlay,
                      QKeySequence(Qt::CTRL | Qt::Key_Return), &MainWindow::start);
+    m_showWindow = action(tr("Show &Window"), {"window", "window-restore", "view-restore"},
+                          QStyle::SP_TitleBarNormalButton, {}, &MainWindow::showWindow);
+    m_showWindow->setToolTip(tr("Bring the window of the VM to the front"));
     m_pause = action(tr("&Pause"), {"media-playback-pause"}, QStyle::SP_MediaPause,
                      QKeySequence(Qt::CTRL | Qt::Key_P), &MainWindow::togglePause);
     m_shutDown = action(tr("Shut &Down"), {"system-shutdown"}, QStyle::SP_MediaStop,
@@ -338,7 +354,7 @@ void MainWindow::createActions()
     QMenu *machine = menuBar()->addMenu(tr("&Machine"));
     machine->addAction(m_settings);
     machine->addSeparator();
-    machine->addActions({m_start, m_pause, m_shutDown, m_reset, m_forceOff});
+    machine->addActions({m_start, m_showWindow, m_pause, m_shutDown, m_reset, m_forceOff});
     machine->addSeparator();
     machine->addActions({m_log, m_folder, m_command});
     machine->addSeparator();
@@ -361,7 +377,7 @@ void MainWindow::createActions()
     toolbar->setObjectName("toolbar");
     toolbar->setMovable(false);
     toolbar->setToolButtonStyle(Qt::ToolButtonFollowStyle);
-    toolbar->addActions({m_new, m_settings});
+    toolbar->addAction(m_new);
     toolbar->addSeparator();
     toolbar->addActions({m_start, m_pause, m_shutDown, m_forceOff});
 }
@@ -587,6 +603,8 @@ void MainWindow::updateActions()
 
     m_settings->setEnabled(vm);
     m_start->setEnabled(vm && state == VmRunner::State::Stopped);
+    m_showWindow->setEnabled(vm && (state == VmRunner::State::Running || paused) &&
+                             hasWindow(vm));
     m_pause->setEnabled(vm && (state == VmRunner::State::Running || paused));
     m_pause->setText(paused ? tr("&Resume") : tr("&Pause"));
     m_pause->setIcon(paused ? Icons::themed({"media-playback-start"}, QStyle::SP_MediaPlay)
@@ -596,7 +614,7 @@ void MainWindow::updateActions()
     m_forceOff->setEnabled(vm && state != VmRunner::State::Stopped);
     m_clone->setEnabled(vm && state == VmRunner::State::Stopped);
     m_remove->setEnabled(vm && state == VmRunner::State::Stopped);
-    m_log->setEnabled(vm && QFileInfo::exists(vm->runner()->logPath()));
+    m_log->setEnabled(vm);
     m_folder->setEnabled(vm);
     m_command->setEnabled(vm);
 }
@@ -816,8 +834,18 @@ void MainWindow::remove()
 
 void MainWindow::showLog()
 {
-    if (Vm *vm = current()) {
-        TextDialog::showFile(this, tr("%1 — Log").arg(vm->name()), vm->runner()->logPath());
+    if (current()) {
+        m_pane->setTab(VmPane::Logs);
+    }
+}
+
+void MainWindow::showWindow()
+{
+    Vm *vm = current();
+    QString error;
+
+    if (vm && vm->runner()->pid() > 0 && !VmWindow::raise(vm->runner()->pid(), &error)) {
+        statusBar()->showMessage(error, 10000);
     }
 }
 

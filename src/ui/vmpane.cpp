@@ -6,12 +6,14 @@
 #include <QComboBox>
 #include <QFrame>
 #include <QHBoxLayout>
+#include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QScrollBar>
 #include <QSignalBlocker>
 #include <QSpinBox>
 #include <QStackedWidget>
@@ -23,8 +25,10 @@
 #include "core/vmstore.h"
 #include "ui/banner.h"
 #include "ui/icons.h"
+#include "ui/logview.h"
 #include "ui/settingspages.h"
 #include "ui/vmdetails.h"
+#include "ui/widgets.h"
 
 /*
  * A page, in its scroll area.  The area takes the height for the width of
@@ -51,8 +55,8 @@ public:
 
 VmPane::VmPane(QWidget *parent)
     : QWidget(parent), m_check(new QTimer(this)), m_tabs(new QTabWidget),
-      m_details(new VmDetails), m_list(new QListWidget), m_stack(new QStackedWidget),
-      m_running(new Banner(Banner::Information)),
+      m_details(new VmDetails), m_list(new QListWidget), m_title(new QLabel),
+      m_stack(new QStackedWidget), m_log(new LogView), m_running(new Banner(Banner::Information)),
       /* no mnemonic: the pages use D */
       m_discard(new QPushButton(Icons::themed({"edit-undo"}, QStyle::SP_DialogResetButton),
                                 tr("Discard"))),
@@ -73,9 +77,11 @@ VmPane::VmPane(QWidget *parent)
     m_tabs->setDocumentMode(true);
     m_tabs->addTab(m_details, tr("Details"));
     m_tabs->addTab(settings, tr("Settings"));
+    m_tabs->addTab(m_log, tr("Logs"));
 
     /* the pages down the side, as the settings dialog had them, on the tab */
     m_list->setObjectName("pages");
+    m_stack->setObjectName("pageStack");
     m_list->setIconSize(QSize(22, 22));
     m_list->setSpacing(1);
     m_list->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
@@ -83,6 +89,14 @@ VmPane::VmPane(QWidget *parent)
     m_list->viewport()->setAutoFillBackground(false);
     line->setFrameShape(QFrame::VLine);
     line->setFrameShadow(QFrame::Sunken);
+    /* the name of the page over it, above the titles of its parts */
+    m_title->setObjectName("pageTitle");
+    {
+        QFont font = m_title->font();
+        font.setBold(true);
+        font.setPointSizeF(font.pointSizeF() * 1.3);
+        m_title->setFont(font);
+    }
     m_running->setObjectName("running");
     m_running->setText(tr("The VM is running: the changes apply the next time it starts."));
     m_discard->setObjectName("discard");
@@ -91,6 +105,7 @@ VmPane::VmPane(QWidget *parent)
     footer->addStretch();
     footer->addWidget(m_discard);
     footer->addWidget(m_apply);
+    pageLayout->addWidget(m_title);
     pageLayout->addWidget(m_running);
     pageLayout->addWidget(m_stack, 1);
     pageLayout->addLayout(footer);
@@ -136,6 +151,7 @@ void VmPane::setVm(Vm *vm)
     }
     m_vm = vm;
     m_details->setVm(vm);
+    m_log->setPath(vm ? vm->runner()->logPath() : QString());
     if (vm) {
         connect(vm, &Vm::changed, this, &VmPane::vmChanged);
         connect(vm->runner(), &VmRunner::stateChanged, this, &VmPane::updateFooter);
@@ -173,6 +189,10 @@ void VmPane::buildPages()
             scroll->setWidget(new PageHolder(page));
             scroll->setWidgetResizable(true);
             scroll->setFrameShape(QFrame::NoFrame);
+            /* down, never across: the window is no narrower than the widest page */
+            scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+            scroll->setMinimumWidth(scroll->widget()->minimumSizeHint().width() +
+                                    scroll->verticalScrollBar()->sizeHint().width());
             m_list->addItem(new QListWidgetItem(page->icon(), page->title()));
             m_stack->addWidget(scroll);
             watchEdits(page);
@@ -196,7 +216,7 @@ VmPane::Tab VmPane::tab() const
 
 void VmPane::setTab(Tab tab)
 {
-    m_tabs->setCurrentIndex(tab == Settings ? 1 : 0);
+    m_tabs->setCurrentIndex(qBound(0, int(tab), int(Logs)));
 }
 
 VmPane::Page VmPane::page() const
@@ -225,6 +245,7 @@ void VmPane::switchTo(int row)
     m_page = Page(row);
     m_pages[row]->load(m_args);
     m_stack->setCurrentIndex(row);
+    m_title->setText(m_pages[row]->title());
     updateFooter();
 }
 

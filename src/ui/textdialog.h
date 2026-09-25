@@ -5,19 +5,16 @@
 
 class QPlainTextEdit;
 
-/* Read-only text: a command line to copy, or a log file to follow */
+/* Read-only text to copy, such as a command line */
 class TextDialog : public QDialog
 {
     Q_OBJECT
 
 public:
     static void showText(QWidget *parent, const QString &title, const QString &text);
-    static void showFile(QWidget *parent, const QString &title, const QString &path);
 
 private:
-    TextDialog(QWidget *parent, const QString &title, const QString &path);
-    void reload();
+    TextDialog(QWidget *parent, const QString &title);
 
     QPlainTextEdit *m_text;
-    QString m_path;
 };

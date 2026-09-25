@@ -55,6 +55,8 @@ bool confirm(QWidget *parent, QMessageBox::Icon icon, const QString &title,
              const QString &text, const QString &action);
 
 Form *form();
+/* The height of a line of @widget's text: widths of fields go by it */
+int em(const QWidget *widget);
 /* The title of a part of a page, flat: no frame around the part */
 QLabel *heading(const QString &text);
 /* A form label whose mnemonic focuses @buddy, for fields that are layouts */

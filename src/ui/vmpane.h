@@ -8,6 +8,8 @@
 #include "core/argsfile.h"
 
 class Banner;
+class LogView;
+class QLabel;
 class QListWidget;
 class QPushButton;
 class QStackedWidget;
@@ -18,17 +20,17 @@ class Vm;
 class VmDetails;
 
 /*
- * The VM selected in the list, beside it, in two tabs: its details, and its
- * settings, with their pages listed down the side as in a dialog.  The
- * pages all edit a copy of the VM's arguments, which keeps their changes
- * from page to page until Apply saves them.
+ * The VM selected in the list, beside it, in tabs: its details, its
+ * settings, with their pages listed down the side as in a dialog, and its
+ * log.  The pages all edit a copy of the VM's arguments, which keeps their
+ * changes from page to page until Apply saves them.
  */
 class VmPane : public QWidget
 {
     Q_OBJECT
 
 public:
-    enum Tab { Details, Settings };
+    enum Tab { Details, Settings, Logs };
     enum Page {
         General, System, Display, Storage, SharedFolders, PciDevices, UsbDevices, Arguments,
     };
@@ -76,7 +78,9 @@ private:
     QTabWidget *m_tabs;
     VmDetails *m_details;
     QListWidget *m_list;
+    QLabel *m_title;
     QStackedWidget *m_stack;
+    LogView *m_log;
     Banner *m_running;
     QPushButton *m_discard;
     QPushButton *m_apply;
