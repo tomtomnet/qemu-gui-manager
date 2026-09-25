@@ -74,6 +74,8 @@ private:
     QHash<QString, VmRunner::State> m_endedFrom;
     /* Started from here, not yet running */
     QSet<QString> m_starting;
+    /* Waiting for access to their USB devices, to start */
+    QSet<QString> m_askingUsb;
     QPointer<QemuBuildDialog> m_buildDialog;
 
     QAction *m_new;

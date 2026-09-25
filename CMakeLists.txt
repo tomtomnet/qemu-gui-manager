@@ -78,6 +78,8 @@ qt_add_executable(qemu-gui-manager
     src/ui/textdialog.h
     src/ui/uiconfig.cpp
     src/ui/uiconfig.h
+    src/ui/usbaccess.cpp
+    src/ui/usbaccess.h
     src/ui/vmdetails.cpp
     src/ui/vmdetails.h
     src/ui/widgets.cpp

@@ -150,8 +150,14 @@ missing for each one:
 ## USB passthrough
 
 The USB page passes devices through by vendor and product ID. QEMU needs
-write access to the device's node in `/dev/bus/usb`. A udev rule gives you
-access to a given device:
+read and write access to the device's node in `/dev/bus/usb`, and without it
+QEMU silently doesn't attach the device. So when you start a VM, the manager
+asks for access to its plugged-in devices that you can't open yet. Your
+desktop shows its password dialog (polkit), like the menu of qemu-gui does.
+The access lasts until the device is unplugged; if it isn't given, the
+manager tells you which devices the VM won't get.
+
+To give a device access for good, add a udev rule:
 
     # /etc/udev/rules.d/70-qemu-usb.rules
     SUBSYSTEM=="usb", ATTR{idVendor}=="046d", ATTR{idProduct}=="c52b", TAG+="uaccess"

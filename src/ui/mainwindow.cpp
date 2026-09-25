@@ -39,6 +39,7 @@
 #include "ui/settingsdialog.h"
 #include "ui/textdialog.h"
 #include "ui/uiconfig.h"
+#include "ui/usbaccess.h"
 #include "ui/vmdetails.h"
 #include "ui/widgets.h"
 
@@ -635,10 +636,33 @@ void MainWindow::start()
                                  .arg(Paths::qemuSystemName()));
         return;
     }
+    if (m_askingUsb.contains(vm->id())) {
+        return;
+    }
     m_errors.remove(vm->id());
     m_details->setError({});
-    m_starting.insert(vm->id());
-    vm->runner()->start(vm->args());
+
+    /* the VM gets its USB devices only if it can open them from the start */
+    const QString id = vm->id();
+    m_askingUsb.insert(id);
+    statusBar()->showMessage(tr("Checking the access to the USB devices of %1…").arg(vm->name()));
+    UsbAccess::request(vm, this, [this, id](const QString &warning) {
+        Vm *vm = m_store->find(id);
+
+        m_askingUsb.remove(id);
+        statusBar()->clearMessage();
+        if (!vm || vm->runner()->isActive()) {
+            return;
+        }
+        m_starting.insert(id);
+        vm->runner()->start(vm->args());
+        if (!warning.isEmpty()) {
+            auto *box = new QMessageBox(QMessageBox::Warning, tr("USB Passthrough"), warning,
+                                        QMessageBox::Ok, this);
+            box->setAttribute(Qt::WA_DeleteOnClose);
+            box->open();
+        }
+    });
 }
 
 void MainWindow::togglePause()
