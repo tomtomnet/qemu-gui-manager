@@ -12,6 +12,7 @@
 #include <QStandardPaths>
 
 #include "core/optionvalue.h"
+#include "core/vmconfig.h"
 
 bool Firmware::isUefi() const
 {
@@ -145,26 +146,36 @@ static bool isSecureFlash(const OptionValue &global)
            global.has("cfi.pflash01.secure");
 }
 
+/* Copies @source into @dir, as @name, unless there is one already */
+static bool copyFile(const QString &source, const QDir &dir, const QString &name,
+                     QString *error)
+{
+    const QString target = dir.filePath(name);
+
+    if (!QFileInfo::exists(target) && !QFile::copy(source, target)) {
+        if (error) {
+            *error = QObject::tr("Cannot copy %1 to %2").arg(source, dir.path());
+        }
+        return false;
+    }
+    /* the system's are read-only: the copies are the user's */
+    QFile::setPermissions(target, QFile::permissions(target) | QFile::ReadOwner |
+                                      QFile::WriteOwner);
+    return true;
+}
+
 bool apply(ArgsFile &args, const Firmware &fw, const QString &vmDir, QString *error)
 {
     const bool secure = fw.requiresSmm() || fw.features.contains("secure-boot");
     const QString format = OptionValue::escape(fw.format);
-    QString vars;
+    const QDir dir(vmDir);
+    const QString code = QFileInfo(fw.code).fileName();
+    const QString vars = fw.mode == "split" ? QFileInfo(fw.varsTemplate).fileName() : QString();
 
-    /* the firmware writes its variables into a copy of its own */
-    if (!fw.varsTemplate.isEmpty() || fw.mode == "combined") {
-        const QString source = fw.mode == "combined" ? fw.code : fw.varsTemplate;
-        const QString target = QDir(vmDir).filePath(QFileInfo(source).fileName());
-
-        if (!QFileInfo::exists(target) && !QFile::copy(source, target)) {
-            if (error) {
-                *error = QObject::tr("Cannot copy %1 to %2").arg(source, vmDir);
-            }
-            return false;
-        }
-        QFile::setPermissions(target, QFile::permissions(target) | QFile::ReadOwner |
-                                          QFile::WriteOwner);
-        vars = QFileInfo(source).fileName();
+    /* the combined image holds the variables too: it is written to */
+    if (!copyFile(fw.code, dir, code, error) ||
+        (!vars.isEmpty() && !copyFile(fw.varsTemplate, dir, vars, error))) {
+        return false;
     }
 
     for (qsizetype i = args.lines.size() - 1; i >= 0; i--) {
@@ -181,10 +192,10 @@ bool apply(ArgsFile &args, const Firmware &fw, const QString &vmDir, QString *er
 
     if (fw.mode == "combined") {
         args.add("drive", QString("if=pflash,format=%1,unit=0,file=%2")
-                              .arg(format, OptionValue::escape(vars)));
+                              .arg(format, OptionValue::escape(code)));
     } else {
         args.add("drive", QString("if=pflash,format=%1,unit=0,readonly=on,file=%2")
-                              .arg(format, OptionValue::escape(fw.code)));
+                              .arg(format, OptionValue::escape(code)));
         if (!vars.isEmpty()) {
             args.add("drive", QString("if=pflash,format=%1,unit=1,file=%2")
                                   .arg(format, OptionValue::escape(vars)));
@@ -204,4 +215,33 @@ bool apply(ArgsFile &args, const Firmware &fw, const QString &vmDir, QString *er
     return true;
 }
 
+
+bool copyIntoVm(ArgsFile &args, const QString &vmDir, QStringList *copied, QString *error)
+{
+    const QDir dir(vmDir);
+
+    for (const VmConfig::FileRef &file : VmConfig::files(args)) {
+        const ArgsFile::Line &line = args.lines[file.line];
+        const QFileInfo source(file.path);
+        QString name = source.fileName();
+
+        if (!(line.name == "bios" || line.name == "pflash" ||
+              (line.name == "drive" && OptionValue(line.value).get("if") == "pflash")) ||
+            !source.isAbsolute() || !source.isFile() || source.absolutePath() == dir.absolutePath()) {
+            continue;
+        }
+        /* two different files of the same name */
+        for (int n = 2; QFileInfo::exists(dir.filePath(name)); n++) {
+            name = QString("%1-%2.%3").arg(source.completeBaseName()).arg(n).arg(source.suffix());
+        }
+        if (!copyFile(source.filePath(), dir, name, error)) {
+            return false;
+        }
+        VmConfig::setFile(args, file, name);
+        if (copied) {
+            *copied << source.filePath();
+        }
+    }
+    return true;
+}
 }

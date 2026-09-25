@@ -46,12 +46,22 @@ std::optional<Firmware> find(bool secureBoot, const QString &machine = "pc-q35-1
                              const QStringList &dirs = {});
 /*
  * Makes @fw the firmware of @args: replaces its pflash drives (and -bios)
- * with those of @fw, copying the variable store template into @vmDir
- * (referenced relatively: QEMU runs in the VM folder) unless a copy is
- * already there, and for secure boot or SMM firmware sets smm=on and the
- * secure flash.
+ * with those of @fw, and for secure boot or SMM firmware sets smm=on and
+ * the secure flash.  The firmware and its variable store template are
+ * copied into @vmDir, unless copies are there already, and referenced
+ * relatively (QEMU runs in the VM folder): the VM keeps its firmware
+ * wherever its folder goes, to another distribution even, and the
+ * variables stay with the firmware they were made for.
  */
 bool apply(ArgsFile &args, const Firmware &fw, const QString &vmDir,
            QString *error = nullptr);
+/*
+ * Copies the firmware files @args names outside @vmDir (its pflash drives,
+ * -pflash and -bios) into it, and references the copies relatively: for
+ * an imported VM, like apply() does for a new one.  @copied gets the
+ * files copied.
+ */
+bool copyIntoVm(ArgsFile &args, const QString &vmDir, QStringList *copied = nullptr,
+                QString *error = nullptr);
 
 }

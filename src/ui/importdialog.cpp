@@ -17,6 +17,7 @@
 #include <QSplitter>
 #include <QVBoxLayout>
 
+#include "core/firmware.h"
 #include "core/qemuinfo.h"
 #include "core/vmconfig.h"
 #include "core/vmstore.h"
@@ -35,8 +36,9 @@ ImportDialog::ImportDialog(VmStore *store, const QemuInfo *info, QWidget *parent
     setWindowTitle(tr("Import a VM"));
 
     auto *intro = new QLabel(tr("Open the script you start the VM with, or paste its QEMU "
-                                "command line. The new VM gets the options of the command; "
-                                "its disks and other files stay where they are."));
+                                "command line. The new VM gets the options of the command. "
+                                "Its disks stay where they are; its firmware files are "
+                                "copied into its folder, to go wherever it goes."));
     intro->setWordWrap(true);
     layout->addWidget(intro);
 
@@ -181,7 +183,8 @@ void ImportDialog::accept()
     args = m_result->args;
     VmConfig::setName(args, m_name->text().trimmed());
     m_vm = m_store->create(m_name->text().trimmed(), &error);
-    if (!m_vm || !m_vm->save(args, &error)) {
+    if (!m_vm || !FirmwareDb::copyIntoVm(args, m_vm->dir(), nullptr, &error) ||
+        !m_vm->save(args, &error)) {
         if (m_vm) {
             m_store->remove(m_vm);
             m_vm = nullptr;

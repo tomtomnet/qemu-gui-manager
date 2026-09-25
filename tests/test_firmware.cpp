@@ -138,10 +138,11 @@ private slots:
                  "-name test\n"
                  "-machine q35,accel=kvm,smm=on\n"
                  "-m 4G\n"
-                 "-drive if=pflash,format=qcow2,unit=0,readonly=on,file=" +
-                     tmp.filePath("ovmf/CODE.secboot.qcow2") + "\n"
+                 "-drive if=pflash,format=qcow2,unit=0,readonly=on,file=CODE.secboot.qcow2\n"
                  "-drive if=pflash,format=qcow2,unit=1,file=VARS.secboot.qcow2\n"
                  "-global driver=cfi.pflash01,property=secure,value=on\n");
+        /* the firmware goes with the VM folder, as its variables do */
+        QVERIFY(QFileInfo::exists(vm.filePath("CODE.secboot.qcow2")));
 
         QFile copy(vm.filePath("VARS.secboot.qcow2"));
         QVERIFY(copy.open(QIODevice::ReadWrite));
@@ -155,8 +156,7 @@ private slots:
                  "-name test\n"
                  "-machine q35,accel=kvm,smm=on\n"
                  "-m 4G\n"
-                 "-drive if=pflash,format=qcow2,unit=0,readonly=on,file=" +
-                     tmp.filePath("ovmf/CODE.qcow2") + "\n"
+                 "-drive if=pflash,format=qcow2,unit=0,readonly=on,file=CODE.qcow2\n"
                  "-drive if=pflash,format=qcow2,unit=1,file=VARS.qcow2\n");
         QVERIFY(QFileInfo::exists(vm.filePath("VARS.secboot.qcow2")));
         QVERIFY(QFileInfo::exists(vm.filePath("VARS.qcow2")));
@@ -190,13 +190,46 @@ private slots:
         Firmware fw;
 
         fw.interfaceTypes = {"uefi"};
-        fw.code = "/opt/fw,1/CODE.fd";
+        fw.code = touch("fw,1/CODE,x.fd");
         fw.format = "raw";
         fw.mode = "stateless";
         fw.machines = {"pc-q35-*"};
         QVERIFY(FirmwareDb::apply(args, fw, vm.path()));
         QCOMPARE(args.toText(),
-                 "-drive if=pflash,format=raw,unit=0,readonly=on,file=/opt/fw,,1/CODE.fd\n");
+                 "-drive if=pflash,format=raw,unit=0,readonly=on,file=CODE,,x.fd\n");
+    }
+
+    /* an imported VM gets copies of its firmware, not of its disks */
+    void copyIntoVm()
+    {
+        QTemporaryDir vm;
+        const QString code = touch("script/OVMF_CODE.fd", "code");
+        const QString vars = touch("script/OVMF_VARS.fd", "vars");
+        const QString other = touch("elsewhere/OVMF_CODE.fd", "other code");
+        ArgsFile args = ArgsFile::parse(
+            "-drive if=pflash,format=raw,readonly=on,file=" + code + "\n"
+            "-drive if=pflash,format=raw,file=" + vars + "\n"
+            "-hda " + tmp.filePath("script/disk.qcow2") + "\n"
+            "-bios " + other + "\n"
+            "-drive if=pflash,format=raw,file=missing.fd\n");
+        QStringList copied;
+        QString error;
+
+        QVERIFY2(FirmwareDb::copyIntoVm(args, vm.path(), &copied, &error), qPrintable(error));
+        QCOMPARE(copied, QStringList({code, vars, other}));
+        QCOMPARE(args.lines[0].value, "if=pflash,format=raw,readonly=on,file=OVMF_CODE.fd");
+        QCOMPARE(args.lines[1].value, "if=pflash,format=raw,file=OVMF_VARS.fd");
+        QCOMPARE(args.lines[2].value, tmp.filePath("script/disk.qcow2"));
+        QCOMPARE(args.lines[3].value, "OVMF_CODE-2.fd");
+        QCOMPARE(args.lines[4].value, "if=pflash,format=raw,file=missing.fd");
+        QFile copy(vm.filePath("OVMF_CODE-2.fd"));
+        QVERIFY(copy.open(QIODevice::ReadOnly));
+        QCOMPARE(copy.readAll(), "other code");
+
+        /* once in the VM folder, nothing more to copy */
+        copied.clear();
+        QVERIFY(FirmwareDb::copyIntoVm(args, vm.path(), &copied));
+        QVERIFY(copied.isEmpty());
     }
 
     void missingTemplate()
