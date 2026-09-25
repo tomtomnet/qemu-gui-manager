@@ -4,6 +4,7 @@
 #include <QAbstractItemView>
 #include <QApplication>
 #include <QCompleter>
+#include <QDir>
 #include <QFileInfo>
 #include <QFontDatabase>
 #include <QHeaderView>
@@ -32,7 +33,7 @@ static QString tr(const char *text)
     return QCoreApplication::translate("ArgsEditor", text);
 }
 
-QList<ArgsProblem> checkArgs(const QString &text, const QemuInfo *info)
+QList<ArgsProblem> checkArgs(const QString &text, const QemuInfo *info, const QString &vmDir)
 {
     const bool knowsOptions = info && !info->options.isEmpty();
     const bool knowsDevices = info && !info->devices.isEmpty();
@@ -91,6 +92,23 @@ QList<ArgsProblem> checkArgs(const QString &text, const QemuInfo *info)
                 problems << ArgsProblem{n, tr("Unknown device %1").arg(driver)};
             }
         }
+    }
+    if (!vmDir.isEmpty()) {
+        const QDir dir(vmDir);
+        for (const VmConfig::FileRef &f : VmConfig::files(ArgsFile::parse(text))) {
+            if (QFileInfo::exists(dir.absoluteFilePath(f.path))) {
+                continue;
+            }
+            problems << ArgsProblem{
+                f.line, QDir::isAbsolutePath(f.path)
+                            ? tr("%1 does not exist").arg(f.path)
+                            : tr("%1 is not in the VM folder: give its full path, or copy it "
+                                 "there").arg(f.path)};
+        }
+        std::stable_sort(problems.begin(), problems.end(),
+                         [](const ArgsProblem &a, const ArgsProblem &b) {
+                             return a.line < b.line;
+                         });
     }
     return problems;
 }
@@ -504,7 +522,7 @@ void ArgsEditorPane::check()
     /* the QEMU of the #qemu line, else the preferred one */
     setDocs(QemuDocs::of(VmConfig::qemuBinary(ArgsFile::parse(text))));
 
-    const QList<ArgsProblem> problems = checkArgs(text, m_docs->info());
+    const QList<ArgsProblem> problems = checkArgs(text, m_docs->info(), m_vmDir);
     const QIcon icon = Icons::themed({"dialog-warning"}, QStyle::SP_MessageBoxWarning);
 
     m_problems->clear();

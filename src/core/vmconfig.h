@@ -65,6 +65,21 @@ bool hasSharedMemory(const ArgsFile &args);
 /* Switch guest RAM to a shared memfd backend, keeping its size */
 void useSharedMemory(ArgsFile &args);
 
+/*
+ * The files the arguments read: the values of -hda, -cdrom, -bios,
+ * -kernel..., and of the file=, filename=, path=, mem-path= and script=
+ * keys, but for the options that write files (-trace, -audiodev...) and
+ * the sockets of -chardev.  QEMU runs in the VM folder, so relative paths
+ * are relative to it.
+ */
+struct FileRef {
+    int line;               // in args.lines
+    QString key;            // empty when the whole value is the path
+    QString path;
+};
+QList<FileRef> files(const ArgsFile &args);
+void setFile(ArgsFile &args, const FileRef &file, const QString &path);
+
 /* Host PCI devices passed through: -device vfio-pci,host=ADDRESS */
 QStringList pciPassthrough(const ArgsFile &args);
 void setPciPassthrough(ArgsFile &args, const QStringList &addresses);

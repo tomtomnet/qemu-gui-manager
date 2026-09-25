@@ -18,7 +18,9 @@ struct ArgsProblem {
     int line;
     QString message;
 };
-QList<ArgsProblem> checkArgs(const QString &text, const QemuInfo *info);
+/* With @vmDir, the files the arguments read must exist (relative to it) */
+QList<ArgsProblem> checkArgs(const QString &text, const QemuInfo *info,
+                             const QString &vmDir = {});
 
 class ArgsHighlighter : public QSyntaxHighlighter
 {
@@ -94,6 +96,8 @@ public:
     explicit ArgsEditorPane(QWidget *parent = nullptr);
 
     ArgsEditor *editor() const { return m_editor; }
+    /* Where relative paths point: QEMU runs in the VM folder */
+    void setVmDir(const QString &dir) { m_vmDir = dir; }
     /* Checks the text now, rather than after typing pauses */
     void check();
 
@@ -104,6 +108,7 @@ private:
     void setDocs(QemuDocs *docs);
 
     QemuDocs *m_docs = nullptr;
+    QString m_vmDir;
     ArgsEditor *m_editor;
     QListWidget *m_problems;
     QTimer *m_timer;

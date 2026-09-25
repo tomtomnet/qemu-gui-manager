@@ -1068,9 +1068,10 @@ bool UsbPage::isModified() const
 
 /* Arguments */
 
-ArgumentsPage::ArgumentsPage(QWidget *parent)
+ArgumentsPage::ArgumentsPage(const QString &vmDir, QWidget *parent)
     : SettingsPage(parent), m_pane(new ArgsEditorPane)
 {
+    m_pane->setVmDir(vmDir);
     auto *layout = new QVBoxLayout(this);
     auto *splitter = new QSplitter(Qt::Horizontal);
     auto *reference = new ReferencePanel;

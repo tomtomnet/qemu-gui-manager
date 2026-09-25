@@ -216,7 +216,7 @@ class ArgumentsPage : public SettingsPage
     Q_OBJECT
 
 public:
-    explicit ArgumentsPage(QWidget *parent = nullptr);
+    explicit ArgumentsPage(const QString &vmDir, QWidget *parent = nullptr);
 
     QString title() const override { return tr("Arguments"); }
     QIcon icon() const override;

@@ -146,6 +146,33 @@ private slots:
                  "-device vfio-pci,host=0000:05:00.1\n");
     }
 
+    void files()
+    {
+        ArgsFile a = ArgsFile::parse(
+            "-drive if=pflash,format=raw,readonly=on,file=OVMF_CODE.fd\n"
+            "-hda /vm/disk.qcow2\n"
+            "-chardev socket,id=s,path=/run/sock\n"
+            "-trace events=x,file=trace.log\n"
+            "-object memory-backend-file,id=m,mem-path=/dev/hugepages,size=1G\n"
+            "-object filter-dump,id=d,netdev=n,file=dump.pcap\n"
+            "-netdev tap,id=n,script=no\n"
+            "-drive file=nbd://host/disk\n"
+            "#share tag=t,path=/pub\n");
+        const QList<FileRef> list = VmConfig::files(a);
+
+        QCOMPARE(list.size(), 3);
+        QCOMPARE(list[0].line, 0);
+        QCOMPARE(list[0].key, "file");
+        QCOMPARE(list[0].path, "OVMF_CODE.fd");
+        QCOMPARE(list[1].key, "");
+        QCOMPARE(list[1].path, "/vm/disk.qcow2");
+        QCOMPARE(list[2].key, "mem-path");
+        setFile(a, list[0], "/fw/OVMF,CODE.fd");
+        setFile(a, list[1], "/other/disk.qcow2");
+        QCOMPARE(a.lines[0].value, "if=pflash,format=raw,readonly=on,file=/fw/OVMF,,CODE.fd");
+        QCOMPARE(a.lines[1].value, "/other/disk.qcow2");
+    }
+
     void usb()
     {
         ArgsFile a = ArgsFile::parse(

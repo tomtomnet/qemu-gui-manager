@@ -36,7 +36,7 @@ SettingsDialog::SettingsDialog(Vm *vm, QWidget *parent)
 
     setWindowTitle(tr("%1 — Settings").arg(vm->name()));
     m_pages = {new GeneralPage(vm), new SystemPage, new SharesPage,
-               new PciPage,         new UsbPage,    new ArgumentsPage};
+               new PciPage,         new UsbPage,    new ArgumentsPage(vm->dir())};
 
     m_list->setObjectName("pages");
     m_list->setIconSize(QSize(22, 22));

@@ -5,6 +5,7 @@
 
 #include "core/importer.h"
 
+class Banner;
 class QLabel;
 class QLineEdit;
 class QPlainTextEdit;
@@ -45,5 +46,6 @@ private:
     QLineEdit *m_name;
     QPlainTextEdit *m_preview;
     QLabel *m_notes;
+    Banner *m_missing;
     QPushButton *m_create;
 };

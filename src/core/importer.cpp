@@ -142,13 +142,6 @@ QList<QStringList> splitCommands(const QString &script, QStringList *notes)
     return commands;
 }
 
-/* Options whose value is a path, and keys whose value is one */
-static const QStringList kPathOptions = {
-    "hda", "hdb", "hdc", "hdd", "cdrom", "fda", "fdb", "bios", "kernel",
-    "initrd", "dtb", "pflash", "mtdblock", "sd", "L", "readconfig",
-};
-static const QStringList kPathKeys = {"file", "path", "filename", "mem-path", "script"};
-
 std::optional<Result> importScript(const QString &script, const QString &baseDir,
                                    const std::function<bool(const QString &)> &takesValue)
 {
@@ -185,20 +178,6 @@ std::optional<Result> importScript(const QString &script, const QString &baseDir
         return std::nullopt;
     }
 
-    QStringList missing;
-    auto absolute = [&](const QString &path) {
-        if (path.isEmpty() || QDir::isAbsolutePath(path)) {
-            return path;
-        }
-        const QString candidate = QDir::cleanPath(base.absoluteFilePath(path));
-        if (QFileInfo::exists(candidate)) {
-            return candidate;
-        }
-        if (!missing.contains(path)) {
-            missing << path;
-        }
-        return path;
-    };
 
     ArgsFile &args = result.args;
     if (!others.isEmpty()) {
@@ -233,28 +212,21 @@ std::optional<Result> importScript(const QString &script, const QString &baseDir
                                "itself.").arg(line.name);
             continue;
         }
-
-        if (kPathOptions.contains(line.name)) {
-            line.value = absolute(line.value);
-        } else {
-            OptionValue v(line.value);
-            bool changed = false;
-            for (const QString &key : kPathKeys) {
-                const QString path = v.get(key);
-                if (v.has(key) && absolute(path) != path) {
-                    v.set(key, absolute(path));
-                    changed = true;
-                }
-            }
-            if (changed) {
-                line.value = v.toString();
-            }
-        }
         args.lines << line;
     }
-    if (!missing.isEmpty()) {
-        result.notes << tr("Not found next to the script, so relative to the VM folder: "
-                           "%1.").arg(missing.join(", "));
+
+    /* QEMU runs in the VM folder: the paths from the script's become absolute */
+    for (const VmConfig::FileRef &file : VmConfig::files(args)) {
+        const QString path = QDir::cleanPath(base.absoluteFilePath(file.path));
+
+        if (QDir::isAbsolutePath(file.path)) {
+            continue;
+        }
+        if (QFileInfo::exists(path)) {
+            VmConfig::setFile(args, file, path);
+        } else if (!result.missing.contains(file.path)) {
+            result.missing << file.path;
+        }
     }
     return result;
 }

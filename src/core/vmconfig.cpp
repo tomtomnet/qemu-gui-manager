@@ -361,6 +361,58 @@ static QString fullPciAddress(const QString &address)
     return address.count(':') == 1 ? "0000:" + address : address;
 }
 
+/* Options whose value is a path, keys whose value is one */
+static const QStringList kFileOptions = {
+    "hda", "hdb", "hdc", "hdd", "cdrom", "fda", "fdb", "bios", "kernel",
+    "initrd", "dtb", "pflash", "mtdblock", "sd", "L", "readconfig",
+};
+static const QStringList kFileKeys = {"file", "filename", "path", "mem-path", "script"};
+/* Options whose paths are sockets, or files QEMU writes */
+static const QStringList kNoFiles = {
+    "chardev", "qmp", "monitor", "mon", "serial", "parallel", "debugcon", "audiodev",
+    "trace", "D", "pidfile",
+};
+
+QList<FileRef> files(const ArgsFile &args)
+{
+    QList<FileRef> out;
+
+    for (int i = 0; i < args.lines.size(); i++) {
+        const ArgsFile::Line &line = args.lines[i];
+
+        if (line.kind != ArgsFile::Line::Option || line.value.isEmpty() ||
+            kNoFiles.contains(line.name)) {
+            continue;
+        }
+        if (kFileOptions.contains(line.name)) {
+            out << FileRef{i, {}, line.value};
+            continue;
+        }
+        const OptionValue v(line.value);
+        for (const QString &key : kFileKeys) {
+            const QString path = v.get(key);
+            /* -object filter-dump,file= writes; mem-path= reads */
+            if (path.isEmpty() || path == "no" || path.contains("://") ||
+                path.startsWith("json:") || (line.name == "object" && key != "mem-path")) {
+                continue;
+            }
+            out << FileRef{i, key, path};
+        }
+    }
+    return out;
+}
+
+void setFile(ArgsFile &args, const FileRef &file, const QString &path)
+{
+    if (file.key.isEmpty()) {
+        args.setValueAt(file.line, path);
+        return;
+    }
+    OptionValue v = args.valueAt(file.line);
+    v.set(file.key, path);
+    args.setValueAt(file.line, v);
+}
+
 QStringList pciPassthrough(const ArgsFile &args)
 {
     QStringList list;

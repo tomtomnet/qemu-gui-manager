@@ -20,6 +20,7 @@
 #include "core/qemuinfo.h"
 #include "core/vmconfig.h"
 #include "core/vmstore.h"
+#include "ui/banner.h"
 
 ImportDialog::ImportDialog(VmStore *store, const QemuInfo *info, QWidget *parent)
     : QDialog(parent), m_store(store), m_info(info)
@@ -52,6 +53,11 @@ ImportDialog::ImportDialog(VmStore *store, const QemuInfo *info, QWidget *parent
     splitter->addWidget(m_preview);
     layout->addWidget(splitter, 1);
 
+    m_missing = new Banner(Banner::Warning);
+    m_missing->button()->setText(tr("Choose Their &Folder…"));
+    m_missing->button()->show();
+    m_missing->hide();
+    layout->addWidget(m_missing);
     m_notes = new QLabel;
     m_notes->setWordWrap(true);
     m_notes->setTextInteractionFlags(Qt::TextSelectableByMouse);
@@ -76,6 +82,15 @@ ImportDialog::ImportDialog(VmStore *store, const QemuInfo *info, QWidget *parent
                                                           m_baseDir->text());
         if (!path.isEmpty()) {
             load(path);
+        }
+    });
+    /* the script runs from where the files are */
+    connect(m_missing->button(), &QPushButton::clicked, this, [this]() {
+        const QString dir = QFileDialog::getExistingDirectory(
+            this, tr("The Folder of %1").arg(m_result ? m_result->missing.value(0) : QString()),
+            m_baseDir->text());
+        if (!dir.isEmpty()) {
+            m_baseDir->setText(dir);
         }
     });
     connect(m_script, &QPlainTextEdit::textChanged, this, &ImportDialog::update);
@@ -141,6 +156,16 @@ void ImportDialog::update()
             notes << "• " + note.toHtmlEscaped();
         }
         m_notes->setText(notes.join("<br>"));
+    }
+    if (m_result && !m_result->missing.isEmpty()) {
+        m_missing->setText(tr("<b>Not found in %1:</b> %2. Choose the folder the script "
+                              "runs from, where they are; otherwise the VM looks for them "
+                              "in its own folder.")
+                               .arg(m_baseDir->text().toHtmlEscaped(),
+                                    m_result->missing.join(", ").toHtmlEscaped()));
+        m_missing->show();
+    } else {
+        m_missing->hide();
     }
     m_create->setEnabled(m_result && !m_name->text().trimmed().isEmpty());
 }

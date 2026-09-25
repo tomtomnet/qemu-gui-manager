@@ -74,10 +74,10 @@ private slots:
                  "-trace vdagent*\n"
                  "-hda " + dir.path() + "/disk.qcow2\n");
         QCOMPARE(VmConfig::qemuBinary(r->args), dir.path() + "/build/qemu-system-x86_64");
-        QCOMPARE(r->notes.size(), 3);
+        QCOMPARE(r->notes.size(), 2);
         QVERIFY(r->notes[0].contains("SDL_VIDEODRIVER=wayland"));
         QVERIFY(r->notes[1].contains("-daemonize"));
-        QVERIFY(r->notes[2].endsWith(": OVMF_VARS.fd."));
+        QCOMPARE(r->missing, QStringList{"OVMF_VARS.fd"});
     }
 
     void takesValue()

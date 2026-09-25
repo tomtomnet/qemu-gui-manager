@@ -21,6 +21,9 @@ namespace Importer {
 struct Result {
     ArgsFile args;          // with #qemu if the script runs a QEMU by path
     QStringList notes;      // what to check by hand
+    /* Relative paths not found from where the script runs: they stay
+       relative, to the VM folder */
+    QStringList missing;
 };
 
 /* The commands of @script, each as its words */
