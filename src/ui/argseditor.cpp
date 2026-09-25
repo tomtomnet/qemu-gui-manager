@@ -21,6 +21,7 @@
 
 #include "core/argsfile.h"
 #include "core/qemuinfo.h"
+#include "core/vmconfig.h"
 #include "ui/icons.h"
 #include "ui/qemudocs.h"
 
@@ -48,7 +49,14 @@ QList<ArgsProblem> checkArgs(const QString &text, const QemuInfo *info)
             continue;
         }
         if (line.startsWith('#')) {
-            if (line.startsWith("#share ") || line == "#share") {
+            if (line.startsWith("#qemu ") || line == "#qemu") {
+                const QString qemu = VmConfig::qemuBinary(ArgsFile::parse(line));
+                if (qemu.isEmpty()) {
+                    problems << ArgsProblem{n, tr("#qemu needs the path of a QEMU binary")};
+                } else if (!QFileInfo(qemu).isExecutable()) {
+                    problems << ArgsProblem{n, tr("%1 is not an executable").arg(qemu)};
+                }
+            } else if (line.startsWith("#share ") || line == "#share") {
                 const OptionValue v(line.mid(7).trimmed());
                 if (v.get("tag").isEmpty() || v.get("path").isEmpty()) {
                     problems << ArgsProblem{n, tr("#share needs tag= and path=")};
@@ -95,6 +103,12 @@ QList<ArgsProblem> checkArgs(const QString &text, const QemuInfo *info)
 ArgsHighlighter::ArgsHighlighter(QTextDocument *document) : QSyntaxHighlighter(document)
 {
     updateFormats(QApplication::palette());
+}
+
+void ArgsHighlighter::setDocs(QemuDocs *docs)
+{
+    m_docs = docs;
+    rehighlight();
 }
 
 static QColor mix(const QColor &a, const QColor &b, double ratio)
@@ -148,7 +162,7 @@ void ArgsHighlighter::highlightKeys(const QString &text, int from)
 
 void ArgsHighlighter::highlightBlock(const QString &text)
 {
-    const QemuInfo *info = QemuDocs::instance()->info();
+    const QemuInfo *info = m_docs ? m_docs->info() : nullptr;
     int start = 0;
 
     while (start < text.size() && text[start].isSpace()) {
@@ -158,10 +172,16 @@ void ArgsHighlighter::highlightBlock(const QString &text)
         return;
     }
     if (text[start] == '#') {
-        if (QStringView(text).mid(start).startsWith(u"#share") &&
-            (start + 6 == text.size() || text[start + 6].isSpace())) {
+        const QStringView rest = QStringView(text).mid(start);
+        auto isDirective = [&](QStringView word) {
+            return rest.startsWith(word) &&
+                   (rest.size() == word.size() || rest[word.size()].isSpace());
+        };
+        if (isDirective(u"#share")) {
             setFormat(start, 6, m_directive);
             highlightKeys(text, start + 7);
+        } else if (isDirective(u"#qemu")) {
+            setFormat(start, 5, m_directive);
         } else {
             setFormat(start, int(text.size()) - start, m_comment);
         }
@@ -231,7 +251,21 @@ ArgsEditor::ArgsEditor(QWidget *parent)
     connect(m_completer, qOverload<const QString &>(&QCompleter::activated), this,
             &ArgsEditor::insertCompletion);
 
-    connect(QemuDocs::instance(), &QemuDocs::changed, this, [this]() {
+    setDocs(QemuDocs::preferred());
+}
+
+void ArgsEditor::setDocs(QemuDocs *docs)
+{
+    if (docs == m_docs) {
+        return;
+    }
+    if (m_docs) {
+        m_docs->disconnect(this);
+    }
+    m_docs = docs;
+    m_context = Context::None;
+    m_highlighter->setDocs(docs);
+    connect(docs, &QemuDocs::changed, this, [this]() {
         m_context = Context::None;
         m_highlighter->rehighlight();
     });
@@ -239,7 +273,7 @@ ArgsEditor::ArgsEditor(QWidget *parent)
 
 void ArgsEditor::fillModel(Context context)
 {
-    const QemuInfo *info = QemuDocs::instance()->info();
+    const QemuInfo *info = m_docs->info();
     QList<std::pair<QString, QString>> rows;
 
     if (context == m_context) {
@@ -286,7 +320,7 @@ void ArgsEditor::complete(bool force)
     QString prefix;
     QRegularExpressionMatch m;
 
-    if (!QemuDocs::instance()->info()) {
+    if (!m_docs->info()) {
         m_completer->popup()->hide();
         return;
     }
@@ -321,7 +355,7 @@ void ArgsEditor::insertCompletion(const QString &completion)
 {
     QTextCursor cursor = textCursor();
     const int prefix = int(m_completer->completionPrefix().size());
-    const QemuInfo *info = QemuDocs::instance()->info();
+    const QemuInfo *info = m_docs->info();
 
     cursor.movePosition(QTextCursor::Left, QTextCursor::KeepAnchor, prefix);
     cursor.insertText(completion);
@@ -436,7 +470,7 @@ ArgsEditorPane::ArgsEditorPane(QWidget *parent)
 
     connect(m_timer, &QTimer::timeout, this, &ArgsEditorPane::check);
     connect(m_editor, &QPlainTextEdit::textChanged, m_timer, qOverload<>(&QTimer::start));
-    connect(QemuDocs::instance(), &QemuDocs::changed, this, &ArgsEditorPane::check);
+    setDocs(QemuDocs::preferred());
     connect(m_problems, &QListWidget::itemActivated, this, [this](QListWidgetItem *item) {
         m_editor->goToLine(item->data(Qt::UserRole).toInt());
     });
@@ -445,10 +479,29 @@ ArgsEditorPane::ArgsEditorPane(QWidget *parent)
     });
 }
 
+void ArgsEditorPane::setDocs(QemuDocs *docs)
+{
+    if (docs == m_docs) {
+        return;
+    }
+    if (m_docs) {
+        m_docs->disconnect(this);
+    }
+    m_docs = docs;
+    m_editor->setDocs(docs);
+    connect(docs, &QemuDocs::changed, this, &ArgsEditorPane::check);
+    emit docsChanged(docs);
+}
+
 void ArgsEditorPane::check()
 {
-    const QList<ArgsProblem> problems =
-        checkArgs(m_editor->toPlainText(), QemuDocs::instance()->info());
+    const QString text = m_editor->toPlainText();
+
+    m_timer->stop();
+    /* the QEMU of the #qemu line, else the preferred one */
+    setDocs(QemuDocs::of(VmConfig::qemuBinary(ArgsFile::parse(text))));
+
+    const QList<ArgsProblem> problems = checkArgs(text, m_docs->info());
     const QIcon icon = Icons::themed({"dialog-warning"}, QStyle::SP_MessageBoxWarning);
 
     m_problems->clear();

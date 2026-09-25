@@ -28,8 +28,10 @@
 #include "core/vmrunner.h"
 #include "core/vmstore.h"
 #include "ui/icons.h"
+#include "ui/importdialog.h"
 #include "ui/newvmdialog.h"
 #include "ui/preferencesdialog.h"
+#include "ui/qemubuilddialog.h"
 #include "ui/qemudocs.h"
 #include "ui/referencepanel.h"
 #include "ui/settingsdialog.h"
@@ -220,7 +222,7 @@ MainWindow::MainWindow(VmStore *store, QWidget *parent)
     connect(m_details, &VmDetails::showLog, this, &MainWindow::showLog);
     connect(store, &VmStore::added, this, &MainWindow::addVm);
     connect(store, &VmStore::removed, this, &MainWindow::removeItem);
-    connect(QemuDocs::instance(), &QemuDocs::changed, this, &MainWindow::updateStatus);
+    connect(QemuDocs::preferred(), &QemuDocs::changed, this, &MainWindow::updateStatus);
 
     for (Vm *vm : store->vms()) {
         addVm(vm);
@@ -252,6 +254,12 @@ void MainWindow::createActions()
     m_new = action(tr("&New…"), {"list-add", "document-new"}, QStyle::SP_FileDialogNewFolder,
                    QKeySequence::New, &MainWindow::newVm);
     m_new->setToolTip(tr("Create a virtual machine"));
+    m_import = action(tr("&Import VM…"), {"document-import"}, QStyle::SP_DialogOpenButton,
+                      QKeySequence(Qt::CTRL | Qt::Key_I), &MainWindow::importVm);
+    m_import->setToolTip(tr("Create a virtual machine from a QEMU launch script"));
+    m_build = action(tr("&Build QEMU…"), {"run-build", "run-build-install"},
+                     QStyle::SP_BrowserReload, QKeySequence(Qt::CTRL | Qt::Key_B),
+                     &MainWindow::buildQemu);
     m_settings = new QAction(Icons::themed({"configure", "preferences-system"},
                                            QStyle::SP_FileDialogDetailedView),
                              tr("&Settings…"), this);
@@ -303,7 +311,9 @@ void MainWindow::createActions()
 
     QMenu *file = menuBar()->addMenu(tr("&File"));
     file->addAction(m_new);
+    file->addAction(m_import);
     file->addSeparator();
+    file->addAction(m_build);
     file->addAction(m_preferences);
     file->addAction(m_reference);
     file->addSeparator();
@@ -376,38 +386,11 @@ void MainWindow::addVm(Vm *vm)
             m_details->refresh();
         }
     });
-    connect(vm->runner(), &VmRunner::stateChanged, this, [this, vm](VmRunner::State state) {
-        if (state == VmRunner::State::Starting) {
-            m_errors.remove(vm->id());
-        }
-        updateItem(vm);
-        if (vm == current()) {
-            m_details->setError(m_errors.value(vm->id()));
-            m_details->refresh();
-            updateActions();
-        }
-    });
-    connect(vm->runner(), &VmRunner::failed, this, [this, vm](const QString &error) {
-        m_errors[vm->id()] = error;
-        updateItem(vm);
-        if (vm == current()) {
-            m_details->setError(error);
-            updateActions();
-        }
-
-        auto *box = new QMessageBox(QMessageBox::Warning, tr("%1 Stopped").arg(vm->name()),
-                                    tr("%1 stopped with an error.").arg(vm->name()),
-                                    QMessageBox::Close, this);
-        QPushButton *log = box->addButton(tr("Show &Log"), QMessageBox::ActionRole);
-        const QString id = vm->id();
-        box->setInformativeText(error);
-        box->setAttribute(Qt::WA_DeleteOnClose);
-        connect(log, &QPushButton::clicked, this, [this, id]() {
-            select(id);
-            showLog();
-        });
-        box->open();
-    });
+    connect(vm->runner(), &VmRunner::stateChanged, this,
+            [this, vm](VmRunner::State state) { stateChanged(vm, state); });
+    connect(vm->runner(), &VmRunner::failed, this,
+            [this, vm](const QString &error) { failed(vm, error); });
+    m_states[vm->id()] = vm->runner()->state();
     updateItem(vm);
     m_list->sortItems();
     if (m_list->count() == 1) {
@@ -416,9 +399,79 @@ void MainWindow::addVm(Vm *vm)
     currentChanged();
 }
 
+void MainWindow::stateChanged(Vm *vm, VmRunner::State state)
+{
+    const QString id = vm->id();
+
+    if (state == VmRunner::State::Stopped) {
+        /* for failed(), which follows */
+        m_endedFrom[id] = m_states.value(id);
+    } else {
+        /* a new run, started here or found running (attach) */
+        m_errors.remove(id);
+        if (state != VmRunner::State::Starting) {
+            m_starting.remove(id);
+        }
+    }
+    m_states[id] = state;
+    updateItem(vm);
+    if (vm == current()) {
+        m_details->setError(m_errors.value(id));
+        m_details->refresh();
+        updateActions();
+    }
+}
+
+void MainWindow::failed(Vm *vm, const QString &error)
+{
+    const QString id = vm->id();
+    const VmRunner::State state = vm->runner()->state();
+    QString title, text;
+
+    if (state != VmRunner::State::Stopped) {
+        /* QEMU refused a command: the VM runs on */
+        title = vm->name();
+        text = tr("QEMU refused the command.");
+    } else {
+        const VmRunner::State from = m_endedFrom.value(id);
+
+        m_errors[id] = error;
+        updateItem(vm);
+        if (vm == current()) {
+            m_details->setError(error);
+            updateActions();
+        }
+        if (m_starting.remove(id)) {
+            title = tr("Cannot Start %1").arg(vm->name());
+            text = tr("%1 could not start.").arg(vm->name());
+        } else if (from != VmRunner::State::Stopped) {
+            title = tr("%1 Stopped").arg(vm->name());
+            text = tr("%1 stopped unexpectedly.").arg(vm->name());
+        } else {
+            title = vm->name();
+            text = tr("Cannot connect to %1.").arg(vm->name());
+        }
+    }
+
+    auto *box = new QMessageBox(QMessageBox::Warning, title, text, QMessageBox::Close, this);
+    box->setInformativeText(error);
+    box->setAttribute(Qt::WA_DeleteOnClose);
+    if (QFileInfo::exists(vm->runner()->logPath())) {
+        QPushButton *log = box->addButton(tr("Show &Log"), QMessageBox::ActionRole);
+        connect(log, &QPushButton::clicked, this, [this, id]() {
+            select(id);
+            showLog();
+        });
+    }
+    box->open();
+}
+
 void MainWindow::removeItem(const QString &id)
 {
     m_errors.remove(id);
+    m_states.remove(id);
+    m_endedFrom.remove(id);
+    m_starting.remove(id);
     delete itemOf(id);
     currentChanged();
 }
@@ -486,7 +539,7 @@ void MainWindow::updateActions()
 
 void MainWindow::updateStatus()
 {
-    const QemuDocs *docs = QemuDocs::instance();
+    const QemuDocs *docs = QemuDocs::preferred();
     const QemuInfo *info = docs->info();
     int running = 0;
 
@@ -520,6 +573,38 @@ void MainWindow::newVm()
     }
 }
 
+void MainWindow::importVm()
+{
+    ImportDialog dialog(m_store, QemuDocs::preferred()->info(), this);
+
+    if (dialog.exec() == QDialog::Accepted && dialog.vm()) {
+        select(dialog.vm()->id());
+    }
+}
+
+void MainWindow::buildQemu()
+{
+    if (!m_buildDialog) {
+        /* not modal: the VMs stay at hand during a build */
+        m_buildDialog = new QemuBuildDialog(this);
+        connect(m_buildDialog, &QemuBuildDialog::qemuChanged, this, [this]() {
+            QemuDocs::reloadPreferred();
+            m_details->refresh();
+        });
+    }
+    m_buildDialog->show();
+    m_buildDialog->raise();
+    m_buildDialog->activateWindow();
+}
+
+void MainWindow::bringToFront()
+{
+    setWindowState((windowState() & ~Qt::WindowMinimized) | Qt::WindowActive);
+    show();
+    raise();
+    activateWindow();
+}
+
 void MainWindow::openSettings(Vm *vm, int page)
 {
     if (!vm) {
@@ -547,6 +632,7 @@ void MainWindow::start()
     }
     m_errors.remove(vm->id());
     m_details->setError({});
+    m_starting.insert(vm->id());
     vm->runner()->start(vm->args());
 }
 
@@ -585,6 +671,11 @@ void MainWindow::forceOff()
     Vm *vm = current();
 
     if (!vm) {
+        return;
+    }
+    if (vm->runner()->state() == VmRunner::State::Stopping) {
+        /* the guest is off already, or on its way */
+        vm->runner()->forceOff();
         return;
     }
     QMessageBox box(QMessageBox::Warning, tr("Force Off %1?").arg(vm->name()),

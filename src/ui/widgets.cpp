@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "widgets.h"
 
+#include <QApplication>
 #include <QDir>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
-#include <QApplication>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -13,6 +13,7 @@
 #include <QRegularExpression>
 #include <QSlider>
 #include <QSpinBox>
+#include <QStyle>
 
 Form::Form()
 {

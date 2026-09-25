@@ -92,9 +92,20 @@ ReferencePanel::ReferencePanel(QWidget *parent)
         }
     });
     connect(m_use, &QPushButton::clicked, this, &ReferencePanel::use);
-    connect(QemuDocs::instance(), &QemuDocs::changed, this, &ReferencePanel::refresh);
-    connect(QemuDocs::instance(), &QemuDocs::propertiesLoaded, this,
-            [this](const QString &device) {
+    setDocs(QemuDocs::preferred());
+}
+
+void ReferencePanel::setDocs(QemuDocs *docs)
+{
+    if (docs == m_docs) {
+        return;
+    }
+    if (m_docs) {
+        m_docs->disconnect(this);
+    }
+    m_docs = docs;
+    connect(docs, &QemuDocs::changed, this, &ReferencePanel::refresh);
+    connect(docs, &QemuDocs::propertiesLoaded, this, [this](const QString &device) {
         const QTreeWidgetItem *item = m_results->currentItem();
         if (item && item->data(0, KindRole).toInt() == Device &&
             item->data(0, NameRole).toString() == device) {
@@ -139,7 +150,7 @@ void ReferencePanel::refresh()
         QT_TR_NOOP("Character devices"), QT_TR_NOOP("Audio backends"),
         QT_TR_NOOP("Displays"),        QT_TR_NOOP("Accelerators"),
     };
-    const QemuInfo *info = QemuDocs::instance()->info();
+    const QemuInfo *info = m_docs->info();
     const QStringList words = m_search->text().toLower().split(' ', Qt::SkipEmptyParts);
     const QString currentName =
         m_results->currentItem() ? m_results->currentItem()->data(0, NameRole).toString()
@@ -151,7 +162,7 @@ void ReferencePanel::refresh()
 
     m_results->clear();
     if (!info) {
-        m_status->setText(QemuDocs::instance()->status());
+        m_status->setText(m_docs->status());
         m_status->show();
         m_doc->clear();
         return;
@@ -250,7 +261,7 @@ void ReferencePanel::refresh()
 void ReferencePanel::showCurrent()
 {
     const QTreeWidgetItem *item = m_results->currentItem();
-    const QemuInfo *info = QemuDocs::instance()->info();
+    const QemuInfo *info = m_docs->info();
     QString html;
 
     m_use->setEnabled(item && item->parent() && info);
@@ -260,7 +271,7 @@ void ReferencePanel::showCurrent()
     if (!item || !item->parent()) {
         m_doc->setHtml(tr("<p>The documentation of <b>%1</b>, QEMU %2.</p>"
                           "<p>Search it, pick an entry and see its description here.</p>")
-                           .arg(QemuDocs::instance()->binary().toHtmlEscaped(),
+                           .arg(m_docs->binary().toHtmlEscaped(),
                                 info->version.toHtmlEscaped()));
         return;
     }
@@ -327,7 +338,7 @@ void ReferencePanel::showCurrent()
             }
         } else {
             html += tr("<p>Loading the properties…</p>");
-            QemuDocs::instance()->loadProperties(name);
+            m_docs->loadProperties(name);
         }
     } else {
         const QList<QemuNamedDoc> *list = nullptr;
@@ -376,7 +387,7 @@ void ReferencePanel::showCurrent()
 
 QString ReferencePanel::lineFor(const QTreeWidgetItem *item) const
 {
-    const QemuInfo *info = QemuDocs::instance()->info();
+    const QemuInfo *info = m_docs->info();
     const QString name = item->data(0, NameRole).toString();
 
     switch (item->data(0, KindRole).toInt()) {

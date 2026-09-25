@@ -3,8 +3,13 @@
 
 #include <QHash>
 #include <QMainWindow>
+#include <QPointer>
+#include <QSet>
+
+#include "core/vmrunner.h"
 
 class QAction;
+class QemuBuildDialog;
 class QLabel;
 class QListWidget;
 class QListWidgetItem;
@@ -26,7 +31,11 @@ public:
     Vm *current() const;
     void select(const QString &id);
     void newVm();
+    void importVm();
+    void buildQemu();
     void openSettings(Vm *vm, int page = -1);
+    /* Shows the window over the others, for a second instance */
+    void bringToFront();
 
 protected:
     void closeEvent(QCloseEvent *event) override;
@@ -37,6 +46,8 @@ private:
     void removeItem(const QString &id);
     QListWidgetItem *itemOf(const QString &id) const;
     void updateItem(Vm *vm);
+    void stateChanged(Vm *vm, VmRunner::State state);
+    void failed(Vm *vm, const QString &error);
     void updateActions();
     void updateStatus();
     void currentChanged();
@@ -56,10 +67,18 @@ private:
     VmDetails *m_details;
     QSplitter *m_splitter;
     QLabel *m_qemuStatus;
-    /* Why the last start of a VM failed, by id */
+    /* Why the last run of a VM ended with an error, by id */
     QHash<QString, QString> m_errors;
+    /* The state of each VM before its latest change */
+    QHash<QString, VmRunner::State> m_states;
+    QHash<QString, VmRunner::State> m_endedFrom;
+    /* Started from here, not yet running */
+    QSet<QString> m_starting;
+    QPointer<QemuBuildDialog> m_buildDialog;
 
     QAction *m_new;
+    QAction *m_import;
+    QAction *m_build;
     QAction *m_settings;
     QAction *m_start;
     QAction *m_pause;

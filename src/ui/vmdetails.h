@@ -5,6 +5,7 @@
 #include <QWidget>
 
 class Banner;
+class QemuDocs;
 class QLabel;
 class QTextBrowser;
 class Vm;
@@ -29,9 +30,11 @@ private:
     QString html() const;
 
     QPointer<Vm> m_vm;
+    QemuDocs *m_docs = nullptr;
     QLabel *m_icon;
     QLabel *m_name;
     QLabel *m_state;
+    Banner *m_note;
     Banner *m_error;
     QTextBrowser *m_text;
 };

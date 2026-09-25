@@ -145,6 +145,6 @@ void PreferencesDialog::accept()
 {
     Paths::setQemuBinary(m_qemu->text().trimmed());
     Paths::setVirtiofsd(m_virtiofsd->text().trimmed());
-    QemuDocs::instance()->reload();
+    QemuDocs::reloadPreferred();
     QDialog::accept();
 }

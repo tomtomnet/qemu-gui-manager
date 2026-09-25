@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "settingspages.h"
 
+#include <QButtonGroup>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -15,8 +16,8 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMap>
-#include <QPainter>
 #include <QPushButton>
+#include <QRadioButton>
 #include <QRegularExpression>
 #include <QSlider>
 #include <QSpinBox>
@@ -88,7 +89,9 @@ SystemPage::SystemPage(QWidget *parent)
       m_topology(new QCheckBox(tr("Set the &topology"))), m_sockets(new QSpinBox),
       m_cores(new QSpinBox), m_threads(new QSpinBox), m_model(new QComboBox),
       m_modelInfo(Widgets::hint()), m_machine(new QComboBox), m_machineInfo(Widgets::hint()),
-      m_accel(new QComboBox)
+      m_accel(new QComboBox), m_defaultQemu(new QRadioButton),
+      m_ownQemu(new QRadioButton(tr("This &build:"))), m_qemuPath(new QLineEdit),
+      m_qemuInfo(Widgets::hint())
 {
     auto *layout = new QVBoxLayout(this);
     auto *form = Widgets::form();
@@ -167,11 +170,53 @@ SystemPage::SystemPage(QWidget *parent)
     form->addRow(tr("Mac&hine:"), m_machine);
     form->addRow(QString(), m_machineInfo);
     form->addRow(tr("&Acceleration:"), m_accel);
+
+    /* the QEMU of this VM: #qemu */
+    auto *qemu = new QVBoxLayout;
+    auto *ownRow = new QHBoxLayout;
+    auto *qemuGroup = new QButtonGroup(this);
+    m_defaultQemu->setObjectName("defaultQemu");
+    m_ownQemu->setObjectName("ownQemu");
+    m_qemuPath->setObjectName("qemuPath");
+    m_qemuPath->setPlaceholderText(tr("A qemu-system-x86_64, e.g. of a build with a patch"));
+    qemuGroup->addButton(m_defaultQemu);
+    qemuGroup->addButton(m_ownQemu);
+    ownRow->addWidget(m_ownQemu);
+    ownRow->addWidget(Widgets::browseRow(m_qemuPath, tr("QEMU Binary")), 1);
+    qemu->addWidget(m_defaultQemu);
+    qemu->addLayout(ownRow);
+    form->addRow(Widgets::label(tr("&QEMU:"), m_defaultQemu), qemu);
+    form->addRow(QString(), m_qemuInfo);
     layout->addLayout(form);
     layout->addStretch();
 
+    connect(qemuGroup, &QButtonGroup::buttonToggled, this, &SystemPage::updateQemu);
+    connect(m_qemuPath, &QLineEdit::textChanged, this, &SystemPage::updateQemu);
+    updateQemu();
+}
+
+QString SystemPage::chosenQemu() const
+{
+    return m_ownQemu->isChecked() ? m_qemuPath->text().trimmed() : QString();
+}
+
+void SystemPage::updateQemu()
+{
+    const QString preferred = Paths::qemuBinary();
+    QemuDocs *docs = QemuDocs::of(chosenQemu());
+
+    m_defaultQemu->setText(preferred.isEmpty()
+                               ? tr("The &default QEMU, from the preferences: not found")
+                               : tr("The &default QEMU: %1").arg(preferred));
+    m_qemuPath->parentWidget()->setEnabled(m_ownQemu->isChecked());
+    if (docs != m_docs) {
+        if (m_docs) {
+            m_docs->disconnect(this);
+        }
+        m_docs = docs;
+        connect(docs, &QemuDocs::changed, this, &SystemPage::fillLists);
+    }
     fillLists();
-    connect(QemuDocs::instance(), &QemuDocs::changed, this, &SystemPage::fillLists);
 }
 
 QIcon SystemPage::icon() const
@@ -181,7 +226,7 @@ QIcon SystemPage::icon() const
 
 void SystemPage::fillLists()
 {
-    const QemuInfo *info = QemuDocs::instance()->info();
+    const QemuInfo *info = m_docs->info();
     const QString model = m_model->currentText();
     const QString machine = m_machine->currentText();
     const QSignalBlocker a(m_model), b(m_machine);
@@ -207,11 +252,19 @@ void SystemPage::fillLists()
     m_machine->addItems(machines);
     m_machine->setCurrentText(machine);
     describe();
+
+    if (m_ownQemu->isChecked() && chosenQemu().isEmpty()) {
+        m_qemuInfo->setText(tr("Choose the QEMU binary of this VM."));
+    } else if (info) {
+        m_qemuInfo->setText(tr("QEMU %1").arg(info->version));
+    } else {
+        m_qemuInfo->setText(m_docs->status());
+    }
 }
 
 void SystemPage::describe()
 {
-    const QemuInfo *info = QemuDocs::instance()->info();
+    const QemuInfo *info = m_docs->info();
     const QString model = m_model->currentText().trimmed();
     const QString machine = m_machine->currentText().trimmed();
     QString modelText, machineText;
@@ -286,6 +339,14 @@ void SystemPage::load(const ArgsFile &args)
     m_model->setCurrentText(m_loadedCpus.model);
     m_machine->setCurrentText(m_loadedMachine);
 
+    m_loadedQemu = VmConfig::qemuBinary(args);
+    {
+        const QSignalBlocker a(m_defaultQemu), b(m_ownQemu), c(m_qemuPath);
+        m_qemuPath->setText(m_loadedQemu);
+        (m_loadedQemu.isEmpty() ? m_defaultQemu : m_ownQemu)->setChecked(true);
+    }
+    updateQemu();
+
     m_accel->clear();
     m_accel->addItem(tr("KVM: hardware virtualization, fast"), "kvm");
     m_accel->addItem(tr("TCG: software emulation, slow"), "tcg");
@@ -351,6 +412,10 @@ void SystemPage::save(ArgsFile &args)
     if (accel != m_loadedAccel) {
         UiConfig::setAccel(args, accel);
         m_loadedAccel = accel;
+    }
+    if (chosenQemu() != m_loadedQemu) {
+        VmConfig::setQemuBinary(args, chosenQemu());
+        m_loadedQemu = chosenQemu();
     }
 }
 
@@ -967,6 +1032,7 @@ ArgumentsPage::ArgumentsPage(QWidget *parent)
     m_pane->setObjectName("argsPane");
     reference->setObjectName("reference");
     reference->setEditor(m_pane->editor());
+    connect(m_pane, &ArgsEditorPane::docsChanged, reference, &ReferencePanel::setDocs);
     splitter->addWidget(m_pane);
     splitter->addWidget(reference);
     splitter->setStretchFactor(0, 3);
@@ -989,6 +1055,8 @@ void ArgumentsPage::load(const ArgsFile &args)
 {
     m_loaded = args.toText();
     m_pane->editor()->setPlainText(m_loaded);
+    /* the documentation of the VM's QEMU, at once */
+    m_pane->check();
 }
 
 void ArgumentsPage::save(ArgsFile &args)

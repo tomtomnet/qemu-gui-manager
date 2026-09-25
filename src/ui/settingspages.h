@@ -11,6 +11,8 @@
 
 class ArgsEditorPane;
 class Banner;
+class QemuDocs;
+class QRadioButton;
 class QCheckBox;
 class QComboBox;
 class QLabel;
@@ -73,10 +75,14 @@ public:
     void save(ArgsFile &args) override;
 
 private:
+    /* The QEMU chosen, empty for the default one */
+    QString chosenQemu() const;
+    void updateQemu();
     void fillLists();
     void updateTopology();
     void describe();
 
+    QemuDocs *m_docs = nullptr;
     QSlider *m_memorySlider;
     QSpinBox *m_memory;
     QSlider *m_cpuSlider;
@@ -90,11 +96,16 @@ private:
     QComboBox *m_machine;
     QLabel *m_machineInfo;
     QComboBox *m_accel;
+    QRadioButton *m_defaultQemu;
+    QRadioButton *m_ownQemu;
+    QLineEdit *m_qemuPath;
+    QLabel *m_qemuInfo;
 
     qint64 m_loadedMemory = 0;
     VmConfig::Cpus m_loadedCpus;
     QString m_loadedMachine;
     QString m_loadedAccel;
+    QString m_loadedQemu;
 };
 
 class SharesPage : public SettingsPage

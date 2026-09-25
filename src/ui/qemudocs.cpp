@@ -3,21 +3,79 @@
 
 #include <QCoreApplication>
 #include <QFileInfo>
+#include <QHash>
+#include <QSet>
 
 #include "core/paths.h"
+#include "core/vmconfig.h"
 
-QemuDocs *QemuDocs::instance()
+/* One loader per binary, whichever QemuDocs use it */
+static QemuInfoLoader *loaderOf(const QString &binary)
+{
+    static QHash<QString, QemuInfoLoader *> loaders;
+    QemuInfoLoader *&loader = loaders[binary];
+
+    if (!loader) {
+        loader = new QemuInfoLoader(binary, QCoreApplication::instance());
+    }
+    return loader;
+}
+
+/* Loads once, as a second load() would run QEMU all over again */
+static void startLoading(QemuInfoLoader *loader)
+{
+    static QSet<QemuInfoLoader *> loading;
+
+    if (loader->isLoaded() || loading.contains(loader)) {
+        return;
+    }
+    loading.insert(loader);
+    QObject::connect(loader, &QemuInfoLoader::failed, loader,
+                     [loader]() { loading.remove(loader); });
+    QObject::connect(loader, &QemuInfoLoader::loaded, loader,
+                     [loader]() { loading.remove(loader); });
+    /* emits loaded() at once when cached */
+    loader->load();
+}
+
+QemuDocs *QemuDocs::preferred()
 {
     static QemuDocs *docs = nullptr;
 
     if (!docs) {
-        docs = new QemuDocs;
-        docs->reload();
+        docs = new QemuDocs(true);
+        docs->setBinary(Paths::qemuBinary());
     }
     return docs;
 }
 
-QemuDocs::QemuDocs() : QObject(QCoreApplication::instance())
+QemuDocs *QemuDocs::of(const QString &binary)
+{
+    static QHash<QString, QemuDocs *> all;
+
+    if (binary.isEmpty()) {
+        return preferred();
+    }
+    QemuDocs *&docs = all[binary];
+    if (!docs) {
+        docs = new QemuDocs(false);
+        docs->setBinary(binary);
+    }
+    return docs;
+}
+
+QemuDocs *QemuDocs::forArgs(const ArgsFile &args)
+{
+    return of(VmConfig::qemuBinary(args));
+}
+
+void QemuDocs::reloadPreferred()
+{
+    preferred()->setBinary(Paths::qemuBinary());
+}
+
+QemuDocs::QemuDocs(bool preferred)
+    : QObject(QCoreApplication::instance()), m_preferred(preferred)
 {
 }
 
@@ -26,52 +84,40 @@ const QemuInfo *QemuDocs::info() const
     return m_loader && m_loader->isLoaded() ? &m_loader->info() : nullptr;
 }
 
-void QemuDocs::reload()
+void QemuDocs::setBinary(const QString &binary)
 {
-    const QString binary = Paths::qemuBinary();
-
     if (m_loader && binary == m_binary) {
         return;
     }
+    if (m_loader) {
+        m_loader->disconnect(this);
+        m_loader = nullptr;
+    }
     m_binary = binary;
-    m_loader = nullptr;
     if (binary.isEmpty()) {
         m_status = tr("QEMU was not found. Set its path in the preferences.");
         emit changed();
         return;
     }
     if (!QFileInfo(binary).isExecutable()) {
-        m_status = tr("%1 is not an executable. Check the QEMU path in the preferences.")
-                       .arg(binary);
+        m_status = m_preferred
+                       ? tr("%1 is not an executable. Check the QEMU in the preferences.")
+                             .arg(binary)
+                       : tr("%1 is not an executable.").arg(binary);
         emit changed();
         return;
     }
 
-    m_loader = m_loaders.value(binary);
-    if (!m_loader) {
-        QemuInfoLoader *loader = new QemuInfoLoader(binary, this);
-
-        m_loaders.insert(binary, loader);
-        connect(loader, &QemuInfoLoader::loaded, this, [this, loader]() {
-            if (loader == m_loader) {
-                m_status.clear();
-                emit changed();
-            }
-        });
-        connect(loader, &QemuInfoLoader::failed, this, [this, loader](const QString &error) {
-            if (loader == m_loader) {
-                m_status = tr("Cannot read the QEMU documentation: %1").arg(error);
-                emit changed();
-            }
-        });
-        connect(loader, &QemuInfoLoader::propertiesLoaded, this,
-                [this, loader](const QString &device) {
-            if (loader == m_loader) {
-                emit propertiesLoaded(device);
-            }
-        });
-        m_loader = loader;
-    }
+    m_loader = loaderOf(binary);
+    connect(m_loader, &QemuInfoLoader::loaded, this, [this]() {
+        m_status.clear();
+        emit changed();
+    });
+    connect(m_loader, &QemuInfoLoader::failed, this, [this](const QString &error) {
+        m_status = tr("Cannot read the QEMU documentation: %1").arg(error);
+        emit changed();
+    });
+    connect(m_loader, &QemuInfoLoader::propertiesLoaded, this, &QemuDocs::propertiesLoaded);
     if (m_loader->isLoaded()) {
         m_status.clear();
         emit changed();
@@ -79,8 +125,7 @@ void QemuDocs::reload()
     }
     m_status = tr("Loading the QEMU documentation…");
     emit changed();
-    /* may emit loaded() right away, from the cache */
-    m_loader->load();
+    startLoading(m_loader);
 }
 
 void QemuDocs::loadProperties(const QString &device)

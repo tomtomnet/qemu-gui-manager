@@ -6,11 +6,12 @@
 #include <QSyntaxHighlighter>
 #include <QTextCharFormat>
 
+#include "ui/qemudocs.h"
+
 class QCompleter;
 class QListWidget;
 class QStandardItemModel;
 class QTimer;
-struct QemuInfo;
 
 /* What is wrong with the arguments, per line (0-based) */
 struct ArgsProblem {
@@ -24,6 +25,8 @@ class ArgsHighlighter : public QSyntaxHighlighter
 public:
     explicit ArgsHighlighter(QTextDocument *document);
 
+    /* Unknown options are underlined, once @docs are loaded */
+    void setDocs(QemuDocs *docs);
     /* After the palette changed */
     void updateFormats(const QPalette &palette);
 
@@ -33,6 +36,7 @@ protected:
 private:
     void highlightKeys(const QString &text, int from);
 
+    QemuDocs *m_docs = nullptr;
     QTextCharFormat m_option;
     QTextCharFormat m_unknown;
     QTextCharFormat m_key;
@@ -53,6 +57,9 @@ class ArgsEditor : public QPlainTextEdit
 public:
     explicit ArgsEditor(QWidget *parent = nullptr);
 
+    /* The documentation for highlighting and completion */
+    void setDocs(QemuDocs *docs);
+    QemuDocs *docs() const { return m_docs; }
     /* On a line of its own after the cursor's, or on the cursor's if blank */
     void insertLine(const QString &line);
     void goToLine(int line);
@@ -68,13 +75,17 @@ private:
     void insertCompletion(const QString &completion);
     void fillModel(Context context);
 
+    QemuDocs *m_docs = nullptr;
     ArgsHighlighter *m_highlighter;
     QCompleter *m_completer;
     QStandardItemModel *m_model;
     Context m_context = Context::None;
 };
 
-/* The editor with the list of problems under it */
+/*
+ * The editor with the list of problems under it.  It follows the #qemu
+ * line of the text: the documentation is that of the QEMU the VM runs.
+ */
 class ArgsEditorPane : public QWidget
 {
     Q_OBJECT
@@ -83,10 +94,16 @@ public:
     explicit ArgsEditorPane(QWidget *parent = nullptr);
 
     ArgsEditor *editor() const { return m_editor; }
-
-private:
+    /* Checks the text now, rather than after typing pauses */
     void check();
 
+signals:
+    void docsChanged(QemuDocs *docs);
+
+private:
+    void setDocs(QemuDocs *docs);
+
+    QemuDocs *m_docs = nullptr;
     ArgsEditor *m_editor;
     QListWidget *m_problems;
     QTimer *m_timer;

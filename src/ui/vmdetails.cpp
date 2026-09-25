@@ -22,8 +22,18 @@
 #include "ui/qemudocs.h"
 #include "ui/uiconfig.h"
 
+/* The guest shut down, but -no-shutdown keeps QEMU open until Force Off */
+static bool keptOpen(const Vm *vm)
+{
+    return vm->runner()->state() == VmRunner::State::Stopping &&
+           vm->args().indexOf("no-shutdown") >= 0;
+}
+
 QString stateText(const Vm *vm)
 {
+    if (keptOpen(vm)) {
+        return QCoreApplication::translate("VmDetails", "Shut down, QEMU still open");
+    }
     switch (vm->runner()->state()) {
     case VmRunner::State::Stopped:
         break;
@@ -54,7 +64,8 @@ static QString link(const QString &path)
 
 VmDetails::VmDetails(QWidget *parent)
     : QWidget(parent), m_icon(new QLabel), m_name(new QLabel), m_state(new QLabel),
-      m_error(new Banner(Banner::Warning)), m_text(new QTextBrowser)
+      m_note(new Banner(Banner::Information)), m_error(new Banner(Banner::Warning)),
+      m_text(new QTextBrowser)
 {
     auto *layout = new QVBoxLayout(this);
     auto *header = new QHBoxLayout;
@@ -71,6 +82,9 @@ VmDetails::VmDetails(QWidget *parent)
     header->addWidget(m_icon);
     header->addLayout(titles, 1);
 
+    m_note->setText(tr("The guest has shut down. QEMU stays open because of the "
+                       "-no-shutdown option: Force Off closes it."));
+    m_note->hide();
     m_error->button()->setText(tr("Show &Log"));
     m_error->button()->show();
     m_error->hide();
@@ -80,11 +94,11 @@ VmDetails::VmDetails(QWidget *parent)
 
     layout->setContentsMargins(0, 0, 0, 0);
     layout->addLayout(header);
+    layout->addWidget(m_note);
     layout->addWidget(m_error);
     layout->addWidget(m_text, 1);
 
     connect(m_error->button(), &QPushButton::clicked, this, &VmDetails::showLog);
-    connect(QemuDocs::instance(), &QemuDocs::changed, this, &VmDetails::refresh);
 }
 
 void VmDetails::setVm(Vm *vm)
@@ -105,10 +119,22 @@ void VmDetails::refresh()
         m_name->clear();
         m_state->clear();
         m_text->clear();
+        m_note->hide();
         return;
     }
     m_name->setText(m_vm->name());
     m_state->setText(stateText(m_vm));
+    m_note->setVisible(keptOpen(m_vm));
+
+    /* the documentation of the VM's QEMU tells the kinds of its devices */
+    QemuDocs *docs = QemuDocs::forArgs(m_vm->args());
+    if (docs != m_docs) {
+        if (m_docs) {
+            m_docs->disconnect(this);
+        }
+        m_docs = docs;
+        connect(docs, &QemuDocs::changed, this, &VmDetails::refresh);
+    }
 
     /* keep the scroll position across updates */
     const int scroll = m_text->verticalScrollBar()->value();
@@ -120,7 +146,7 @@ QString VmDetails::html() const
 {
     using Rows = QList<std::pair<QString, QString>>;
     const ArgsFile &args = m_vm->args();
-    const QemuInfo *info = QemuDocs::instance()->info();
+    const QemuInfo *info = m_docs->info();
     const QString dim = palette().color(QPalette::PlaceholderText).name();
     QString html;
 

@@ -5,6 +5,7 @@
 #include <QWidget>
 
 class ArgsEditor;
+class QemuDocs;
 class QLabel;
 class QLineEdit;
 class QPushButton;
@@ -26,6 +27,8 @@ class ReferencePanel : public QWidget
 public:
     explicit ReferencePanel(QWidget *parent = nullptr);
 
+    /* The documentation shown, by default of the preferred QEMU */
+    void setDocs(QemuDocs *docs);
     void setEditor(ArgsEditor *editor);
     void setSearchText(const QString &text);
 
@@ -43,6 +46,7 @@ private:
     QTextBrowser *m_doc;
     QPushButton *m_use;
     QTimer *m_timer;
+    QemuDocs *m_docs = nullptr;
     QPointer<ArgsEditor> m_editor;
 };
 
