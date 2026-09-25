@@ -257,6 +257,7 @@ QList<Share> shares(const ArgsFile &args)
         s.path = v.get("path");
         s.cache = v.get("cache", "auto");
         s.readonly = v.flag("readonly");
+        s.mount = v.get("mount");
         list << s;
     }
     return list;
@@ -283,6 +284,11 @@ void setShares(ArgsFile &args, const QList<Share> &shares)
             v.setFlag("readonly", true);
         } else {
             v.remove("readonly");
+        }
+        if (s.mount.isEmpty()) {
+            v.remove("mount");
+        } else {
+            v.set("mount", s.mount);
         }
         if (i < old.size()) {
             args.setValueAt(old[i], v);

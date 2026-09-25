@@ -1201,7 +1201,7 @@ static bool sameShares(const QList<VmConfig::Share> &a, const QList<VmConfig::Sh
     }
     for (qsizetype i = 0; i < a.size(); i++) {
         if (a[i].tag != b[i].tag || a[i].path != b[i].path || a[i].cache != b[i].cache ||
-            a[i].readonly != b[i].readonly) {
+            a[i].readonly != b[i].readonly || a[i].mount != b[i].mount) {
             return false;
         }
     }
@@ -1210,7 +1210,7 @@ static bool sameShares(const QList<VmConfig::Share> &a, const QList<VmConfig::Sh
 
 SharesPage::SharesPage(QWidget *parent)
     : SettingsPage(parent), m_virtiofsd(new Banner(Banner::Warning)),
-      m_memory(new Banner(Banner::Information)), m_table(new QTableWidget(0, 4)),
+      m_memory(new Banner(Banner::Information)), m_table(new QTableWidget(0, 5)),
       m_edit(new QPushButton(tr("&Edit…"))), m_remove(new QPushButton(tr("&Remove"))),
       m_mount(new QLabel)
 {
@@ -1222,11 +1222,12 @@ SharesPage::SharesPage(QWidget *parent)
 
     m_table->setObjectName("shares");
     m_table->setHorizontalHeaderLabels(
-        {tr("Name in the guest"), tr("Folder"), tr("Cache"), tr("Access")});
+        {tr("Name in the guest"), tr("Folder"), tr("Mounted at"), tr("Cache"), tr("Access")});
     m_table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
     m_table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     m_table->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
     m_table->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+    m_table->horizontalHeader()->setSectionResizeMode(4, QHeaderView::ResizeToContents);
     m_table->verticalHeader()->hide();
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_table->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -1317,8 +1318,10 @@ void SharesPage::fill()
         const VmConfig::Share &s = m_shares[i];
         m_table->setItem(i, 0, new QTableWidgetItem(s.tag));
         m_table->setItem(i, 1, new QTableWidgetItem(QDir::toNativeSeparators(s.path)));
-        m_table->setItem(i, 2, new QTableWidgetItem(cacheName(s.cache)));
-        m_table->setItem(i, 3, new QTableWidgetItem(s.readonly ? tr("Read only")
+        m_table->setItem(i, 2, new QTableWidgetItem(s.mount.isEmpty() ? tr("By hand")
+                                                                       : s.mount));
+        m_table->setItem(i, 3, new QTableWidgetItem(cacheName(s.cache)));
+        m_table->setItem(i, 4, new QTableWidgetItem(s.readonly ? tr("Read only")
                                                                : tr("Read and write")));
         m_table->item(i, 1)->setToolTip(s.path);
     }
@@ -1352,6 +1355,17 @@ void SharesPage::updateHints()
     }
 
     const QString tag = selected ? m_shares[row].tag : QString("TAG");
+    if (selected && !m_shares[row].mount.isEmpty()) {
+        m_mount->setText(tr("The guest mounts it at %1 at each start, through the QEMU guest "
+                            "agent, which it needs:\n"
+                            "  sudo dnf install qemu-guest-agent\n"
+                            "(apt or pacman on other distributions; it starts by itself.)\n"
+                            "\n"
+                            "By hand instead:\n"
+                            "  sudo mount -t virtiofs %2 %1")
+                             .arg(m_shares[row].mount, tag));
+        return;
+    }
     const QString mount = "/mnt/" + tag;
     m_mount->setText(tr("Mount it:\n"
                         "  sudo mkdir -p %1\n"
@@ -1395,6 +1409,7 @@ ShareDialog::ShareDialog(const VmConfig::Share &share, const QStringList &otherT
     : QDialog(parent), m_path(new QLineEdit), m_tag(new QLineEdit), m_cache(new QComboBox),
       m_cacheInfo(Widgets::hint()), m_readonly(new QCheckBox(tr("&Read only: the VM cannot change "
                                                        "the files"))),
+      m_mount(new QCheckBox(tr("&Mount it in the guest at start, at:"))), m_mountDir(new QLineEdit),
       m_error(new QLabel), m_otherTags(otherTags)
 {
     auto *layout = new QVBoxLayout(this);
@@ -1422,6 +1437,14 @@ ShareDialog::ShareDialog(const VmConfig::Share &share, const QStringList &otherT
     form->addRow(tr("&Cache:"), m_cache);
     form->addRow(QString(), m_cacheInfo);
     form->addRow(QString(), m_readonly);
+    {
+        auto *mountRow = new QHBoxLayout;
+        mountRow->addWidget(m_mount);
+        mountRow->addWidget(m_mountDir, 1);
+        form->addRow(QString(), mountRow);
+    }
+    form->addRow(QString(), Widgets::hint(tr("The guest needs the QEMU guest agent for that: "
+                                             "sudo dnf install qemu-guest-agent")));
     layout->addLayout(form);
     layout->addWidget(m_error);
     layout->addStretch();
@@ -1432,6 +1455,12 @@ ShareDialog::ShareDialog(const VmConfig::Share &share, const QStringList &otherT
     m_tagEdited = !share.tag.isEmpty();
     m_cache->setCurrentIndex(qMax(0, m_cache->findData(share.cache)));
     m_readonly->setChecked(share.readonly);
+    /* new folders are mounted at /mnt/NAME, following the name */
+    m_mount->setChecked(share.tag.isEmpty() || !share.mount.isEmpty());
+    m_mountEdited = !share.mount.isEmpty();
+    m_mountDir->setObjectName("mount");
+    m_mountDir->setText(share.mount.isEmpty() ? "/mnt/" + share.tag : share.mount);
+    m_mountDir->setEnabled(m_mount->isChecked());
 
     connect(m_path, &QLineEdit::textChanged, this, [this](const QString &path) {
         if (!m_tagEdited) {
@@ -1440,11 +1469,25 @@ ShareDialog::ShareDialog(const VmConfig::Share &share, const QStringList &otherT
             tag.replace(unsafe, "-");
             const QSignalBlocker block(m_tag);
             m_tag->setText(tag.left(36));
+            if (!m_mountEdited) {
+                m_mountDir->setText("/mnt/" + m_tag->text());
+            }
         }
         validate();
     });
     connect(m_tag, &QLineEdit::textEdited, this, [this]() { m_tagEdited = true; });
-    connect(m_tag, &QLineEdit::textChanged, this, &ShareDialog::validate);
+    connect(m_tag, &QLineEdit::textChanged, this, [this](const QString &tag) {
+        if (!m_mountEdited) {
+            m_mountDir->setText("/mnt/" + tag.trimmed());
+        }
+        validate();
+    });
+    connect(m_mountDir, &QLineEdit::textEdited, this, [this]() { m_mountEdited = true; });
+    connect(m_mountDir, &QLineEdit::textChanged, this, &ShareDialog::validate);
+    connect(m_mount, &QCheckBox::toggled, this, [this](bool on) {
+        m_mountDir->setEnabled(on);
+        validate();
+    });
     auto describeCache = [this]() {
         const QString mode = m_cache->currentData().toString();
         if (mode == "auto") {
@@ -1474,6 +1517,7 @@ VmConfig::Share ShareDialog::share() const
     s.path = QDir::cleanPath(m_path->text().trimmed());
     s.cache = m_cache->currentData().toString();
     s.readonly = m_readonly->isChecked();
+    s.mount = m_mount->isChecked() ? QDir::cleanPath(m_mountDir->text().trimmed()) : QString();
     return s;
 }
 
@@ -1495,6 +1539,8 @@ void ShareDialog::validate()
                    "underscores.");
     } else if (m_otherTags.contains(tag)) {
         error = tr("Another shared folder has this name.");
+    } else if (m_mount->isChecked() && !m_mountDir->text().trimmed().startsWith('/')) {
+        error = tr("The guest mounts it at a full path, like /mnt/%1.").arg(tag);
     }
     m_error->setText(error.trimmed());
     m_ok->setEnabled(error.isEmpty());

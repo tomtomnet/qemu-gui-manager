@@ -128,6 +128,17 @@ private slots:
                  "#share tag=pub,path=/home/b/Public,x-future=1,cache=always,readonly=on\n"
                  "#share tag=new,path=/a,,b,cache=never\n");
         QCOMPARE(a.argv(), QStringList({"-m", "1G"}));
+
+        /* where the guest mounts it */
+        list = VmConfig::shares(a);
+        QVERIFY(list[0].mount.isEmpty());
+        list[0].mount = "/home/me/Public";
+        setShares(a, list);
+        QVERIFY(a.toText().contains("readonly=on,mount=/home/me/Public\n"));
+        QCOMPARE(VmConfig::shares(a)[0].mount, "/home/me/Public");
+        list[0].mount.clear();
+        setShares(a, list);
+        QVERIFY(!a.toText().contains("mount="));
     }
 
     void pci()

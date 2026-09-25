@@ -38,8 +38,9 @@ public:
     /* The state goes Starting, then Running once QMP answers, or back to
        Stopped with failed() */
     void start(const ArgsFile &args);
-    /* Picks up a QEMU started by an earlier run of the manager, if any */
-    void attach();
+    /* Picks up a QEMU started by an earlier run of the manager, if any;
+       @args, those of the VM, tell which shared folders to mount */
+    void attach(const ArgsFile &args = {});
     void pause();
     void resume();
     /* ACPI power button */
@@ -56,6 +57,11 @@ signals:
     void stateChanged(VmRunner::State state);
     /* The start failed, QEMU stopped unexpectedly, or refused a command */
     void failed(const QString &error);
+    /*
+     * The guest agent came up, at each boot of the guest, and the shared
+     * folders with a mount point were mounted there, or not
+     */
+    void sharesMounted(const QStringList &mounted, const QStringList &problems);
 
 private:
     struct Private;

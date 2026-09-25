@@ -268,10 +268,13 @@ private:
     QComboBox *m_cache;
     QLabel *m_cacheInfo;
     QCheckBox *m_readonly;
+    QCheckBox *m_mount;
+    QLineEdit *m_mountDir;
     QLabel *m_error;
     QPushButton *m_ok;
     QStringList m_otherTags;
     bool m_tagEdited = false;
+    bool m_mountEdited = false;
 };
 
 class PciPage : public SettingsPage

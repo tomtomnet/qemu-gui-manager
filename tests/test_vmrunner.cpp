@@ -111,6 +111,25 @@ private slots:
         QVERIFY(runDir.toLocal8Bit().size() < 90);
     }
 
+    /* a share to mount: the port of the guest agent, unless the VM has its own */
+    void agentPort()
+    {
+        const VmRunner runner(id, tmp.path());
+        const QStringList mount = runner.commandLine(
+            ArgsFile::parse("-m 1G\n#share tag=pub,path=/home/x,mount=/mnt/pub\n"));
+        const QStringList noMount = runner.commandLine(
+            ArgsFile::parse("-m 1G\n#share tag=pub,path=/home/x\n"));
+        const QStringList own = runner.commandLine(ArgsFile::parse(
+            "-m 1G\n#share tag=pub,path=/home/x,mount=/mnt/pub\n"
+            "-device virtserialport,chardev=ga,name=org.qemu.guest_agent.0\n"));
+
+        QVERIFY(mount.contains("socket,id=qgm-ga,path=" + runDir + "/qga.sock,server=on,wait=off"));
+        QVERIFY(mount.contains("virtserialport,bus=qgm-serial.0,chardev=qgm-ga,"
+                               "name=org.qemu.guest_agent.0,id=qgm-ga-port"));
+        QCOMPARE(mount.size(), noMount.size() + 6);
+        QVERIFY(!own.join(' ').contains("qgm-ga"));
+    }
+
     void longIdsKeepShortSockets()
     {
         const VmRunner runner(QString(100, 'x'), tmp.path());

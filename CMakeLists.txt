@@ -14,6 +14,8 @@ qt_add_library(qgm_core STATIC
     src/core/argsfile.h
     src/core/firmware.cpp
     src/core/firmware.h
+    src/core/guestagent.cpp
+    src/core/guestagent.h
     src/core/hostdevices.cpp
     src/core/hostdevices.h
     src/core/hostmemory.cpp
@@ -109,6 +111,7 @@ if(BUILD_TESTING)
     foreach(name
             argsfile
             firmware
+            guestagent
             hostdevices
             hostmemory
             importer

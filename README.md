@@ -123,7 +123,16 @@ For each `#share`, the manager starts a `virtiofsd` as you, and adds the
 virtiofs device to QEMU. virtiofs needs the guest RAM in shared memory. The
 Shared Folders page sets that up when you add a folder.
 
-In the guest:
+The guest can mount a folder by itself at each start, where the share's
+`mount=` says (`/mnt/<name>` by default for new folders). For that it
+needs the QEMU guest agent, which starts by itself once installed:
+
+    sudo dnf install qemu-guest-agent
+
+The manager gives the VM the agent's channel, and when the agent comes
+up at boot, it has it create the folder and mount the share there, as
+root. It says so in the status bar, or tells you what went wrong. To mount
+a folder by hand instead:
 
     sudo mount -t virtiofs public /mnt/public
 

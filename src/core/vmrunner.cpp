@@ -14,6 +14,7 @@
 
 #include <csignal>
 
+#include "core/guestagent.h"
 #include "core/paths.h"
 #include "core/qmpclient.h"
 #include "core/vmconfig.h"
@@ -66,6 +67,35 @@ static void signalIfOurs(qint64 pid, const QString &marker, int sig)
     }
 }
 
+/* The port of the guest agent the manager adds, for mounting the shares */
+static const char kAgentPort[] = "qgm-ga-port";
+
+/*
+ * sh -c SCRIPT TAG DIR OPTIONS, as root in the guest: mounts a shared
+ * folder where asked, unless it is there already
+ */
+static const char kMount[] =
+    "mkdir -p \"$1\" || exit 1\n"
+    "if command -v mountpoint >/dev/null 2>&1 && mountpoint -q \"$1\"; then exit 0; fi\n"
+    "exec mount -t virtiofs -o \"$2\" \"$0\" \"$1\"\n";
+
+/* The shares to mount in the guest, if the manager adds the agent's port */
+static QList<VmConfig::Share> sharesToMount(const ArgsFile &args)
+{
+    QList<VmConfig::Share> list;
+
+    /* a port of its own, that the manager cannot talk to */
+    if (args.toText().contains("org.qemu.guest_agent.0")) {
+        return list;
+    }
+    for (const VmConfig::Share &s : VmConfig::shares(args)) {
+        if (!s.mount.isEmpty()) {
+            list << s;
+        }
+    }
+    return list;
+}
+
 /* The QEMU of the VM's #qemu directive, else the one in the preferences */
 static QString qemuFor(const ArgsFile &args)
 {
@@ -112,6 +142,7 @@ struct VmRunner::Private
     ArgsFile args;              // of the run being started
     qint64 pid = 0;             // QEMU
     QList<Helper> helpers;      // virtiofsd started for this run
+    GuestAgent *agent = nullptr;    // mounting the shares
     bool connecting = false;
     bool stopRequested = false; // the end of the run is no failure
     int killStep = 0;
@@ -120,6 +151,7 @@ struct VmRunner::Private
     QString qmpPath() const { return runDir() + "/qmp.sock"; }
     QString pidPath() const { return runDir() + "/qemu.pid"; }
     QString sharePath(qsizetype i) const { return runDir() + QString("/fs%1.sock").arg(i); }
+    QString agentPath() const { return runDir() + "/qga.sock"; }
     QString qmpArg() const;
     QString logPath() const { return dir + "/qemu.log"; }
     QString logTail(bool qemuErrors = true) const;
@@ -138,7 +170,10 @@ struct VmRunner::Private
     void qmpFailed();
     void qmpClosed();
     void exited();
-    void event(const QString &name);
+    void event(const QString &name, const QJsonObject &data);
+    void mountShares();
+    void mountNext(QList<VmConfig::Share> shares, QStringList mounted, QStringList problems);
+    void endMounts(const QStringList &mounted, const QStringList &problems);
     QmpClient::Callback reportErrors(const QString &command);
 };
 
@@ -211,7 +246,7 @@ void VmRunner::Private::removeRuntimeFiles() const
 {
     QDir rt(runDir());
 
-    for (const QString &name : rt.entryList({"qmp.sock", "qemu.pid", "fs*.sock*"},
+    for (const QString &name : rt.entryList({"qmp.sock", "qemu.pid", "fs*.sock*", "qga.sock"},
                                             QDir::AllEntries | QDir::System |
                                                 QDir::Hidden)) {
         rt.remove(name);
@@ -265,6 +300,10 @@ void VmRunner::Private::cleanup()
         signalIfOurs(h.pid, h.marker, SIGTERM);
     }
     helpers.clear();
+    if (agent) {
+        agent->deleteLater();
+        agent = nullptr;
+    }
     pid = 0;
     removeRuntimeFiles();
 }
@@ -407,8 +446,15 @@ void VmRunner::Private::exited()
     emit q->failed(error);
 }
 
-void VmRunner::Private::event(const QString &name)
+void VmRunner::Private::event(const QString &name, const QJsonObject &data)
 {
+    /* qemu-ga opened its port: the guest has booted */
+    if (name == "VSERPORT_CHANGE") {
+        if (data["id"].toString() == kAgentPort && data["open"].toBool()) {
+            mountShares();
+        }
+        return;
+    }
     if (name == "SHUTDOWN") {
         stopRequested = true;
         setState(State::Stopping);
@@ -419,6 +465,60 @@ void VmRunner::Private::event(const QString &name)
     } else if (name == "RESUME" || name == "WAKEUP") {
         setState(State::Running);
     }
+}
+
+void VmRunner::Private::mountShares()
+{
+    const QList<VmConfig::Share> shares = sharesToMount(args);
+
+    if (shares.isEmpty()) {
+        return;
+    }
+    if (agent) {
+        agent->deleteLater();
+    }
+    agent = new GuestAgent(q);
+    QObject::connect(agent, &GuestAgent::ready, q, [this, shares]() {
+        mountNext(shares, {}, {});
+    });
+    QObject::connect(agent, &GuestAgent::failed, q, [this](const QString &error) {
+        endMounts({}, {error});
+    });
+    agent->connectToSocket(agentPath());
+}
+
+void VmRunner::Private::mountNext(QList<VmConfig::Share> shares, QStringList mounted,
+                                  QStringList problems)
+{
+    if (shares.isEmpty()) {
+        endMounts(mounted, problems);
+        return;
+    }
+    const VmConfig::Share share = shares.takeFirst();
+    agent->exec("/bin/sh", {"-c", kMount, share.tag, share.mount, share.readonly ? "ro" : "rw"},
+                [=, this](const GuestAgent::ExecResult &r) mutable {
+        if (!r.error.isEmpty()) {
+            problems << QString("%1: %2").arg(share.mount, r.error);
+        } else if (r.exitCode != 0) {
+            problems << QString("%1: %2").arg(
+                share.mount, r.err.trimmed().isEmpty()
+                                 ? VmRunner::tr("mount ended with %1").arg(r.exitCode)
+                                 : r.err.trimmed());
+        } else {
+            mounted << share.mount;
+        }
+        mountNext(shares, mounted, problems);
+    });
+}
+
+void VmRunner::Private::endMounts(const QStringList &mounted, const QStringList &problems)
+{
+    if (agent) {
+        agent->disconnectFromSocket();
+        agent->deleteLater();
+        agent = nullptr;
+    }
+    emit q->sharesMounted(mounted, problems);
 }
 
 /* Errors of QEMU, not those of the connection closing with QEMU */
@@ -448,7 +548,7 @@ VmRunner::VmRunner(const QString &id, const QString &dir, QObject *parent)
     connect(d->qmp, &QmpClient::connectionFailed, this, [this]() { d->qmpFailed(); });
     connect(d->qmp, &QmpClient::disconnected, this, [this]() { d->qmpClosed(); });
     connect(d->qmp, &QmpClient::qmpEvent, this,
-            [this](const QString &name, const QJsonObject &) { d->event(name); });
+            [this](const QString &name, const QJsonObject &data) { d->event(name, data); });
 }
 
 VmRunner::~VmRunner()
@@ -495,6 +595,16 @@ QStringList VmRunner::commandLine(const ArgsFile &args) const
                 << "-device"
                 << QString("vhost-user-fs-pci,queue-size=1024,chardev=qgm-fs%1,tag=%2")
                        .arg(QString::number(i), OptionValue::escape(shares[i].tag));
+    }
+    /* qemu-ga in the guest mounts the shares */
+    if (!sharesToMount(args).isEmpty()) {
+        command << "-chardev"
+                << QString("socket,id=qgm-ga,path=%1,server=on,wait=off")
+                       .arg(OptionValue::escape(d->agentPath()))
+                << "-device" << "virtio-serial-pci,id=qgm-serial"
+                << "-device"
+                << QString("virtserialport,bus=qgm-serial.0,chardev=qgm-ga,"
+                           "name=org.qemu.guest_agent.0,id=%1").arg(kAgentPort);
     }
     command << "-qmp" << d->qmpArg() << "-pidfile" << d->pidPath();
     return command;
@@ -588,11 +698,12 @@ void VmRunner::start(const ArgsFile &args)
     }
 }
 
-void VmRunner::attach()
+void VmRunner::attach(const ArgsFile &args)
 {
     if (isActive() || d->phase != Private::Phase::Idle) {
         return;
     }
+    d->args = args;
     const qint64 pid = d->runningPid();
     if (pid <= 0) {
         d->removeRuntimeFiles();

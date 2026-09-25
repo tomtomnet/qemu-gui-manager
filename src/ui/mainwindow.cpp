@@ -397,6 +397,22 @@ void MainWindow::addVm(Vm *vm)
     });
     connect(vm->runner(), &VmRunner::stateChanged, this,
             [this, vm](VmRunner::State state) { stateChanged(vm, state); });
+    connect(vm->runner(), &VmRunner::sharesMounted, this,
+            [this, vm](const QStringList &mounted, const QStringList &problems) {
+        if (!mounted.isEmpty()) {
+            statusBar()->showMessage(tr("%1 mounted its shared folders: %2")
+                                         .arg(vm->name(), mounted.join(", ")), 10000);
+        }
+        if (!problems.isEmpty()) {
+            auto *box = new QMessageBox(
+                QMessageBox::Warning, tr("Shared Folders"),
+                tr("%1 could not mount some of its shared folders:\n\n%2")
+                    .arg(vm->name(), problems.join('\n')),
+                QMessageBox::Ok, this);
+            box->setAttribute(Qt::WA_DeleteOnClose);
+            box->open();
+        }
+    });
     connect(vm->runner(), &VmRunner::failed, this,
             [this, vm](const QString &error) { failed(vm, error); });
     m_states[vm->id()] = vm->runner()->state();

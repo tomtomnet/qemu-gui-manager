@@ -93,10 +93,10 @@ int main(int argc, char **argv)
     VmStore store(Paths::vmsDir());
     /* VMs outlive the manager: find those still running */
     for (Vm *vm : store.vms()) {
-        vm->runner()->attach();
+        vm->runner()->attach(vm->args());
     }
     QObject::connect(&store, &VmStore::added, &store,
-                     [](Vm *vm) { vm->runner()->attach(); });
+                     [](Vm *vm) { vm->runner()->attach(vm->args()); });
     /* load the QEMU documentation in the background now */
     QemuDocs::preferred();
 
