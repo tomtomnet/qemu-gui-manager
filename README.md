@@ -77,8 +77,8 @@ Choose the QEMU binary in File > Preferences. It defaults to the
   quoting, so spaces need nothing special.
 - Lines starting with `#` are comments, except for the manager's own
   directives, which QEMU never sees:
-  - `#share tag=...,path=...[,cache=auto|always|never][,readonly=on]` shares
-    a host folder with virtiofs.
+  - `#share tag=...,path=...[,cache=auto|always|never][,readonly=on][,mount=DIR]`
+    shares a host folder with virtiofs, which the guest's agent mounts at DIR.
   - `#qemu /path/to/qemu-system-x86_64` runs this VM with that QEMU instead
     of the one in the preferences.
 - QEMU runs in the VM folder, so relative paths, like `disk.qcow2` above,
