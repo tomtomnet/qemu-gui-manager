@@ -48,6 +48,9 @@ fork whose SDL window has a menu, but it runs any `qemu-system-x86_64`.
 - A warning in the status bar when the running VMs could take more memory
   than is free, before the kernel has to kill one.
 - A different QEMU build per VM, if one needs it.
+- An Updates button in the status bar when qemu-gui-manager, or the qemu-gui
+  QEMU that File > Build QEMU builds, has new commits on GitHub, see
+  [Updates](#updates).
 
 ## Build (Fedora)
 
@@ -133,6 +136,19 @@ really uses native context: QEMU counts the contexts the guest creates of
 each kind (`qom-get` of `x-drm-offered`, `x-drm-contexts` and
 `x-virgl-contexts` on the GPU), and a warning shows when the guest draws
 through virgl, or when this computer offers no native context.
+
+## Updates
+
+Once a day at most, the manager asks GitHub whether qemu-gui-manager and
+qemu-gui have commits newer than the ones this computer runs: the commit
+qemu-gui-manager was built from (CMake records it), and the one File >
+Build QEMU last built. That is two anonymous requests to the compare API of
+`api.github.com`, far below the 60 an hour GitHub allows without an account.
+The answer is kept across restarts, Help > Check for Updates asks again
+(not within 5 minutes of the last time), and when GitHub says there were
+too many requests, the manager waits as long as it says. The Updates button
+lists the new commits; File > Build QEMU updates qemu-gui, and `git pull`
+then a build updates the manager. Preferences can turn the check off.
 
 ## Shared folders
 

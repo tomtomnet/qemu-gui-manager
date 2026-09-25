@@ -3,6 +3,7 @@
 
 #include <QDialog>
 
+class QCheckBox;
 class QLabel;
 class QLineEdit;
 class QProcess;
@@ -26,6 +27,7 @@ private:
     QLabel *m_qemuStatus;
     QLineEdit *m_virtiofsd;
     QLabel *m_virtiofsdStatus;
+    QCheckBox *m_updates;
     QTimer *m_timer;
     QProcess *m_version = nullptr;
 };

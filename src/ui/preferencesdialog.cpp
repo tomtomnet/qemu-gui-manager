@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "preferencesdialog.h"
 
+#include <QCheckBox>
+#include <QSettings>
 #include <QDialogButtonBox>
 #include <QDir>
 #include <QFileInfo>
@@ -32,7 +34,9 @@ static QString autoVirtiofsd()
 
 PreferencesDialog::PreferencesDialog(QWidget *parent)
     : QDialog(parent), m_qemu(new QLineEdit), m_qemuStatus(Widgets::hint()),
-      m_virtiofsd(new QLineEdit), m_virtiofsdStatus(Widgets::hint()), m_timer(new QTimer(this))
+      m_virtiofsd(new QLineEdit), m_virtiofsdStatus(Widgets::hint()),
+      m_updates(new QCheckBox(tr("Check GitHub for &updates once a day"))),
+      m_timer(new QTimer(this))
 {
     auto *layout = new QVBoxLayout(this);
     auto *form = Widgets::form();
@@ -54,6 +58,9 @@ PreferencesDialog::PreferencesDialog(QWidget *parent)
     m_qemu->setText(qemu == autoQemu() ? QString() : qemu);
     m_virtiofsd->setText(virtiofsd == autoVirtiofsd() ? QString() : virtiofsd);
     vms->setOpenExternalLinks(true);
+    m_updates->setObjectName("checkUpdates");
+    m_updates->setChecked(QSettings(Paths::settingsPath(), QSettings::IniFormat)
+                              .value("updates/check", true).toBool());
 
     form->addRow(Widgets::label(tr("&QEMU:"), m_qemu),
                  Widgets::browseRow(m_qemu, tr("QEMU Binary")));
@@ -62,6 +69,9 @@ PreferencesDialog::PreferencesDialog(QWidget *parent)
                  Widgets::browseRow(m_virtiofsd, tr("virtiofsd Binary")));
     form->addRow(QString(), m_virtiofsdStatus);
     form->addRow(tr("Virtual machines:"), vms);
+    form->addRow(QString(), m_updates);
+    form->addRow(QString(), Widgets::hint(tr("Of qemu-gui-manager, and of the QEMU that File > "
+                                             "Build QEMU builds: two requests to GitHub.")));
     layout->addLayout(form);
     layout->addStretch();
     layout->addWidget(buttons);
@@ -139,6 +149,8 @@ void PreferencesDialog::checkVirtiofsd()
 
 void PreferencesDialog::accept()
 {
+    QSettings(Paths::settingsPath(), QSettings::IniFormat)
+        .setValue("updates/check", m_updates->isChecked());
     Paths::setQemuBinary(m_qemu->text().trimmed());
     Paths::setVirtiofsd(m_virtiofsd->text().trimmed());
     QemuDocs::reloadPreferred();

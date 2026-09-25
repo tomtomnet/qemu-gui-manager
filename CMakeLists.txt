@@ -38,6 +38,8 @@ qt_add_library(qgm_core STATIC
     src/core/qmpclient.h
     src/core/snapshots.cpp
     src/core/snapshots.h
+    src/core/updatecheck.cpp
+    src/core/updatecheck.h
     src/core/vmconfig.cpp
     src/core/vmcloner.cpp
     src/core/vmcloner.h
@@ -92,6 +94,8 @@ qt_add_executable(qemu-gui-manager
     src/ui/textdialog.h
     src/ui/uiconfig.cpp
     src/ui/uiconfig.h
+    src/ui/updatenotifier.cpp
+    src/ui/updatenotifier.h
     src/ui/usbaccess.cpp
     src/ui/usbaccess.h
     src/ui/vmdetails.cpp
@@ -107,6 +111,29 @@ qt_add_resources(qemu-gui-manager icons PREFIX /icons BASE data
     FILES data/qemu-gui-manager.svg)
 target_link_libraries(qemu-gui-manager PRIVATE qgm_core Qt6::DBus Qt6::Widgets)
 target_compile_definitions(qemu-gui-manager PRIVATE QGM_VERSION="${PROJECT_VERSION}")
+
+# The commit it is built from, for the update check; none outside a git checkout
+set(QGM_COMMIT "")
+find_package(Git QUIET)
+if(GIT_FOUND AND IS_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/.git")
+    execute_process(COMMAND "${GIT_EXECUTABLE}" rev-parse HEAD
+                    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+                    OUTPUT_VARIABLE QGM_COMMIT OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+    # configured again when the checkout moves, as a git pull does
+    set(git "${CMAKE_CURRENT_SOURCE_DIR}/.git")
+    set(watched "${git}/HEAD")
+    file(READ "${git}/HEAD" head)
+    if(head MATCHES "^ref: ([^\n]+)" AND EXISTS "${git}/${CMAKE_MATCH_1}")
+        list(APPEND watched "${git}/${CMAKE_MATCH_1}")
+    endif()
+    if(EXISTS "${git}/packed-refs")
+        list(APPEND watched "${git}/packed-refs")
+    endif()
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${watched})
+endif()
+# rewritten only when it changes: only what includes it builds again
+configure_file(src/buildinfo.h.in buildinfo.h @ONLY)
+target_include_directories(qemu-gui-manager PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 target_compile_options(qemu-gui-manager PRIVATE -Wall -Wextra)
 
 include(GNUInstallDirs)
@@ -134,6 +161,7 @@ if(BUILD_TESTING)
             qemuinfo
             qmpclient
             snapshots
+            updatecheck
             vmcloner
             vmconfig
             vmhardware

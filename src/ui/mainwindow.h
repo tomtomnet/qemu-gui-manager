@@ -14,6 +14,7 @@ class QLabel;
 class QListWidget;
 class QListWidgetItem;
 class QSplitter;
+class UpdateNotifier;
 class QStackedWidget;
 class Vm;
 class VmDetails;
@@ -87,6 +88,7 @@ private:
     /* The snapshot the next start of a VM starts from, by id */
     QHash<QString, QString> m_loadvm;
     QPointer<QemuBuildDialog> m_buildDialog;
+    UpdateNotifier *m_updates;
     /* The selection left a VM with changes, to ask about */
     bool m_leaving = false;
 

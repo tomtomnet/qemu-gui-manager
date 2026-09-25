@@ -21,6 +21,7 @@
 #include <QStyledItemDelegate>
 #include <QTimer>
 #include <QToolBar>
+#include <QToolButton>
 #include <QUrl>
 #include <QVBoxLayout>
 
@@ -41,6 +42,7 @@
 #include "ui/referencepanel.h"
 #include "ui/textdialog.h"
 #include "ui/uiconfig.h"
+#include "ui/updatenotifier.h"
 #include "ui/usbaccess.h"
 #include "ui/vmdetails.h"
 #include "ui/vmpane.h"
@@ -220,6 +222,9 @@ MainWindow::MainWindow(VmStore *store, QWidget *parent)
     setCentralWidget(m_splitter);
 
     m_qemuStatus->setObjectName("qemuStatus");
+    m_updates = new UpdateNotifier(this);
+    connect(m_updates, &UpdateNotifier::buildQemuRequested, this, &MainWindow::buildQemu);
+    statusBar()->addPermanentWidget(m_updates->button());
     statusBar()->addPermanentWidget(new MemoryMonitor(store, this));
     statusBar()->addPermanentWidget(m_qemuStatus);
 
@@ -366,6 +371,8 @@ void MainWindow::createActions()
 
     QMenu *help = menuBar()->addMenu(tr("&Help"));
     help->addAction(m_reference);
+    help->addAction(tr("Check for &Updates…"), this, [this]() { m_updates->checkNow(); });
+    help->addSeparator();
     help->addAction(tr("&About QEMU GUI Manager"), this, [this]() {
         QMessageBox::about(
             this, tr("About QEMU GUI Manager"),
