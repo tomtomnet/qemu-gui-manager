@@ -8,6 +8,7 @@ class Banner;
 class QemuDocs;
 class QLabel;
 class QTextBrowser;
+class QTimer;
 class Vm;
 
 /* The summary of a VM, beside the list */
@@ -37,6 +38,7 @@ private:
     Banner *m_note;
     Banner *m_error;
     QTextBrowser *m_text;
+    QTimer *m_growing;
 };
 
 /* "Running", "Powered off"... */

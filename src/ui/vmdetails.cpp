@@ -7,12 +7,15 @@
 #include <QFileInfo>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QLocale>
 #include <QPushButton>
 #include <QScrollBar>
 #include <QTextBrowser>
+#include <QTimer>
 #include <QUrl>
 #include <QVBoxLayout>
 
+#include "core/diskinfo.h"
 #include "core/hostdevices.h"
 #include "core/qemuinfo.h"
 #include "core/vmconfig.h"
@@ -67,7 +70,7 @@ static QString link(const QString &path)
 VmDetails::VmDetails(QWidget *parent)
     : QWidget(parent), m_icon(new QLabel), m_name(new QLabel), m_state(new QLabel),
       m_note(new Banner(Banner::Information)), m_error(new Banner(Banner::Warning)),
-      m_text(new QTextBrowser)
+      m_text(new QTextBrowser), m_growing(new QTimer(this))
 {
     auto *layout = new QVBoxLayout(this);
     auto *header = new QHBoxLayout;
@@ -113,6 +116,15 @@ VmDetails::VmDetails(QWidget *parent)
     layout->addWidget(m_text, 1);
 
     connect(m_error->button(), &QPushButton::clicked, this, &VmDetails::showLog);
+
+    /* the disks fill up as the VM runs */
+    m_growing->setInterval(5000);
+    connect(m_growing, &QTimer::timeout, this, [this]() {
+        if (m_vm && m_vm->runner()->isActive() && isVisible()) {
+            refresh();
+        }
+    });
+    m_growing->start();
 }
 
 void VmDetails::setVm(Vm *vm)
@@ -154,6 +166,18 @@ void VmDetails::refresh()
     const int scroll = m_text->verticalScrollBar()->value();
     m_text->setHtml(html());
     m_text->verticalScrollBar()->setValue(scroll);
+}
+
+/* "12.4 GiB used of 64 GiB" */
+static QString usageText(const DiskInfo::Usage &u)
+{
+    const QLocale locale;
+    auto size = [&locale](qint64 bytes) {
+        return locale.formattedDataSize(bytes, 1, QLocale::DataSizeIecFormat);
+    };
+
+    return u.capacity > 0 ? VmDetails::tr("%1 used of %2").arg(size(u.used), size(u.capacity))
+                          : VmDetails::tr("%1 used").arg(size(u.used));
 }
 
 QString VmDetails::html() const
@@ -219,7 +243,17 @@ QString VmDetails::html() const
         if (disk.bus != VmConfig::Disk::Other) {
             kind += QString(" (%1)").arg(UiConfig::busName(disk.bus));
         }
-        storage << std::pair(kind, disk.file.isEmpty() ? text(tr("empty")) : text(disk.file));
+        QString value = disk.file.isEmpty() ? text(tr("empty")) : text(disk.file);
+        if (!disk.cdrom && !disk.file.isEmpty()) {
+            /* the path is relative to the folder QEMU runs in */
+            const DiskInfo::Usage u =
+                DiskInfo::usage(QDir(m_vm->dir()).absoluteFilePath(disk.file));
+            if (u.used >= 0) {
+                value += QString("<br><span style=\"color:%1\">%2</span>")
+                             .arg(dim, text(usageText(u)));
+            }
+        }
+        storage << std::pair(kind, value);
     }
     if (storage.isEmpty()) {
         storage << std::pair(tr("Disks"), text(tr("none")));

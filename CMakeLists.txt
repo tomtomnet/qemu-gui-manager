@@ -12,6 +12,8 @@ qt_standard_project_setup()
 qt_add_library(qgm_core STATIC
     src/core/argsfile.cpp
     src/core/argsfile.h
+    src/core/diskinfo.cpp
+    src/core/diskinfo.h
     src/core/firmware.cpp
     src/core/firmware.h
     src/core/guestagent.cpp
@@ -114,6 +116,7 @@ if(BUILD_TESTING)
     find_package(Qt6 REQUIRED COMPONENTS Test)
     foreach(name
             argsfile
+            diskinfo
             firmware
             guestagent
             hostdevices
