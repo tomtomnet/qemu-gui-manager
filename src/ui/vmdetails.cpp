@@ -16,6 +16,7 @@
 #include <QVBoxLayout>
 
 #include "core/diskinfo.h"
+#include "core/gpucontexts.h"
 #include "core/hostdevices.h"
 #include "core/qemuinfo.h"
 #include "core/vmconfig.h"
@@ -70,7 +71,8 @@ static QString link(const QString &path)
 VmDetails::VmDetails(QWidget *parent)
     : QWidget(parent), m_icon(new QLabel), m_name(new QLabel), m_state(new QLabel),
       m_note(new Banner(Banner::Information)), m_error(new Banner(Banner::Warning)),
-      m_text(new QTextBrowser), m_growing(new QTimer(this))
+      m_text(new QTextBrowser), m_growing(new QTimer(this)), m_contexts(new GpuContexts(this)),
+      m_contextsNote(new Banner(Banner::Warning))
 {
     auto *layout = new QVBoxLayout(this);
     auto *header = new QHBoxLayout;
@@ -113,14 +115,20 @@ VmDetails::VmDetails(QWidget *parent)
     layout->addLayout(header);
     layout->addWidget(m_note);
     layout->addWidget(m_error);
+    layout->addWidget(m_contextsNote);
     layout->addWidget(m_text, 1);
 
     connect(m_error->button(), &QPushButton::clicked, this, &VmDetails::showLog);
 
-    /* the disks fill up as the VM runs */
+    /* the disks fill up as the VM runs, and its guest starts drawing */
+    m_contextsNote->hide();
+    connect(m_contexts, &GpuContexts::changed, this, &VmDetails::refresh);
     m_growing->setInterval(5000);
     connect(m_growing, &QTimer::timeout, this, [this]() {
         if (m_vm && m_vm->runner()->isActive() && isVisible()) {
+            if (VmConfig::graphics(m_vm->args()).nativeContext) {
+                m_contexts->update(m_vm->runner()->qmp());
+            }
             refresh();
         }
     });
@@ -129,6 +137,9 @@ VmDetails::VmDetails(QWidget *parent)
 
 void VmDetails::setVm(Vm *vm)
 {
+    if (vm != m_vm) {
+        m_contexts->reset();
+    }
     m_vm = vm;
     refresh();
 }
@@ -146,11 +157,38 @@ void VmDetails::refresh()
         m_state->clear();
         m_text->clear();
         m_note->hide();
+        m_contextsNote->hide();
         return;
     }
     m_name->setText(m_vm->name());
     m_state->setText(stateText(m_vm));
     m_note->setVisible(keptOpen(m_vm));
+
+    /* native context asked for: what the guest does with it, while it runs */
+    const bool native = VmConfig::graphics(m_vm->args()).nativeContext;
+    if (!m_vm->runner()->isActive()) {
+        m_contexts->reset();
+    } else if (native && m_contexts->status() == GpuContexts::Status::Unknown) {
+        m_contexts->update(m_vm->runner()->qmp());
+    }
+    switch (native && m_vm->runner()->isActive() ? m_contexts->status()
+                                                 : GpuContexts::Status::Unknown) {
+    case GpuContexts::Status::Virgl:
+        m_contextsNote->setText(
+            tr("The guest does not use DRM native context: it draws through virgl, which is much "
+               "slower. Its Mesa has no native context for this GPU; most distributions leave "
+               "it out (Arch has it for AMD)."));
+        m_contextsNote->show();
+        break;
+    case GpuContexts::Status::NotOffered:
+        m_contextsNote->setText(
+            tr("This computer offers the guest no DRM native context: the virglrenderer QEMU "
+               "uses has none for its GPU. File > Build QEMU builds one with native context."));
+        m_contextsNote->show();
+        break;
+    default:
+        m_contextsNote->hide();
+    }
 
     /* the documentation of the VM's QEMU tells the kinds of its devices */
     QemuDocs *docs = QemuDocs::forArgs(m_vm->args());
@@ -234,7 +272,28 @@ QString VmDetails::html() const
              {tr("Acceleration"), text(accelText)},
              {tr("Firmware"), text(UiConfig::firmwareSummary(args))}});
 
-    section(tr("Display"), {{tr("Graphics"), text(UiConfig::displaySummary(args, info))}});
+    Rows display{{tr("Graphics"), text(UiConfig::displaySummary(args, info))}};
+    if (VmConfig::graphics(args).nativeContext && m_vm->runner()->isActive()) {
+        switch (m_contexts->status()) {
+        case GpuContexts::Status::InUse:
+            display << std::pair(tr("Native context"), text(tr("in use")));
+            break;
+        case GpuContexts::Status::Virgl:
+            display << std::pair(tr("Native context"),
+                                 text(tr("not used: the guest draws through virgl")));
+            break;
+        case GpuContexts::Status::NotOffered:
+            display << std::pair(tr("Native context"), text(tr("not offered by this computer")));
+            break;
+        case GpuContexts::Status::Waiting:
+            display << std::pair(tr("Native context"),
+                                 text(tr("offered; the guest has not drawn in 3D yet")));
+            break;
+        case GpuContexts::Status::Unknown:
+            break;
+        }
+    }
+    section(tr("Display"), display);
 
     /* Storage */
     Rows storage;

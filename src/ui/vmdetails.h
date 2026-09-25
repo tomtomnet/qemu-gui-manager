@@ -5,6 +5,7 @@
 #include <QWidget>
 
 class Banner;
+class GpuContexts;
 class QemuDocs;
 class QLabel;
 class QTextBrowser;
@@ -39,6 +40,9 @@ private:
     Banner *m_error;
     QTextBrowser *m_text;
     QTimer *m_growing;
+    /* whether the guest uses the native context it was given */
+    GpuContexts *m_contexts;
+    Banner *m_contextsNote;
 };
 
 /* "Running", "Powered off"... */

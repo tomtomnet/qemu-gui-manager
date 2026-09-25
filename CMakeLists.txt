@@ -16,6 +16,8 @@ qt_add_library(qgm_core STATIC
     src/core/diskinfo.h
     src/core/firmware.cpp
     src/core/firmware.h
+    src/core/gpucontexts.cpp
+    src/core/gpucontexts.h
     src/core/guestagent.cpp
     src/core/guestagent.h
     src/core/hostdevices.cpp
@@ -122,6 +124,7 @@ if(BUILD_TESTING)
             argsfile
             diskinfo
             firmware
+            gpucontexts
             guestagent
             hostdevices
             hostmemory

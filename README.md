@@ -126,6 +126,14 @@ with `-device virtio-vga-gl,blob=on,hostmem=4G,drm_native_context=on`
 (`virtio-gpu-gl-pci` on ARM), and with `-accel kvm,honor-guest-pat=on` on
 Intel.
 
+A guest whose Mesa has no native context for the GPU falls back to virgl
+without a word, and most distributions leave it out (Arch has it for AMD).
+With the qemu-gui build of QEMU, Details says whether the running guest
+really uses native context: QEMU counts the contexts the guest creates of
+each kind (`qom-get` of `x-drm-offered`, `x-drm-contexts` and
+`x-virgl-contexts` on the GPU), and a warning shows when the guest draws
+through virgl, or when this computer offers no native context.
+
 ## Shared folders
 
 For each `#share`, the manager starts a `virtiofsd` as you, and adds the
