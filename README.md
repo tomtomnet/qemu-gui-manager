@@ -199,6 +199,27 @@ qcow2 files of the VM, as the snapshot button of the qemu-gui menu does:
   QMP transaction of `blockdev-snapshot-internal-sync`), as the qemu-gui
   menu does, and the tab says so. The raw files are left out.
 
+## UEFI firmware
+
+A UEFI VM keeps copies of the firmware and of its variable store (boot
+entries, boot order, Secure Boot keys) in its folder. A power cut while it
+runs, or a slip of the hand, can damage or delete them:
+
+- A missing copy is made again from the distribution's firmware when the
+  VM starts, and the log says so. Deleting the variable store is one way
+  to reset it.
+- Before a start, the manager checks the copies: their qcow2 tables and
+  headers, against the firmware they come from. If one looks damaged, it
+  offers new copies, or to start anyway. When QEMU refuses one, the error
+  offers the same.
+- Settings > System > Reset UEFI Variables gives the VM the variables of a
+  new one, for a system that no longer starts, e.g. when the firmware stays
+  on a black screen. Most systems still start, from the fallback boot
+  loader they install.
+- The old files stay in the VM folder, renamed to end in `.bak`. The
+  snapshots of a variable store that can still be read keep the variables
+  they were taken with.
+
 ## PCI passthrough
 
 The PCI page lists your devices by IOMMU group, and says what is still

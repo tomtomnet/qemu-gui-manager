@@ -31,13 +31,16 @@
 #include <QVBoxLayout>
 
 #include "core/firmware.h"
+#include "core/firmwarefiles.h"
 #include "core/hostdevices.h"
 #include "core/paths.h"
 #include "core/qemuinfo.h"
 #include "core/vmhardware.h"
+#include "core/vmrunner.h"
 #include "core/vmstore.h"
 #include "ui/argseditor.h"
 #include "ui/banner.h"
+#include "ui/firmwarerepair.h"
 #include "ui/icons.h"
 #include "ui/qemudocs.h"
 #include "ui/referencepanel.h"
@@ -93,7 +96,7 @@ bool GeneralPage::isModified() const
 
 /* System */
 
-SystemPage::SystemPage(QWidget *parent)
+SystemPage::SystemPage(Vm *vm, QWidget *parent)
     : SettingsPage(parent), m_memorySlider(new QSlider(Qt::Horizontal)), m_memory(new QSpinBox),
       m_cpuSlider(new QSlider(Qt::Horizontal)), m_cpus(new QSpinBox),
       m_topology(new QCheckBox(tr("Set the &topology"))), m_sockets(new QSpinBox),
@@ -101,7 +104,8 @@ SystemPage::SystemPage(QWidget *parent)
       m_modelInfo(Widgets::hint()), m_machine(new QComboBox), m_machineInfo(Widgets::hint()),
       m_accel(new QComboBox), m_defaultQemu(new QRadioButton),
       m_ownQemu(new QRadioButton(tr("This &build:"))), m_qemuPath(new QLineEdit),
-      m_qemuInfo(Widgets::hint()), m_firmware(new QComboBox), m_firmwareInfo(Widgets::hint()),
+      m_qemuInfo(Widgets::hint()), m_vm(vm), m_firmware(new QComboBox),
+      m_firmwareInfo(Widgets::hint()), m_resetVars(new QPushButton(tr("&Reset UEFI Variables…"))),
       m_bootMenu(new QCheckBox(tr("Show the boot men&u when the VM starts"))),
       m_bootDevice(new QComboBox)
 {
@@ -210,9 +214,20 @@ SystemPage::SystemPage(QWidget *parent)
     m_bootDevice->addItem(tr("The network (PXE)"), int(VmConfig::BootDevice::Network));
     m_bootDevice->setToolTip(tr("Sets bootindex=1 on its device, which both SeaBIOS and "
                                 "UEFI follow"));
+    /* for a system that no longer starts, its variables damaged */
+    auto *resetRow = new QHBoxLayout;
+    m_resetVars->setObjectName("resetVars");
+    resetRow->addWidget(m_resetVars);
+    resetRow->addStretch();
+    connect(m_resetVars, &QPushButton::clicked, this, &SystemPage::resetVars);
+    if (m_vm) {
+        connect(m_vm->runner(), &VmRunner::stateChanged, this, &SystemPage::updateResetVars);
+    }
+
     form->addSection(tr("Boot"));
     form->addRow(tr("F&irmware:"), m_firmware);
     form->addRow(QString(), m_firmwareInfo);
+    form->addRow(QString(), resetRow);
     form->addRow(tr("&Start from:"), m_bootDevice);
     form->addRow(QString(), m_bootMenu);
     layout->addLayout(form);
@@ -533,6 +548,40 @@ void SystemPage::loadBoot(const ArgsFile &args)
     }
     m_bootDevice->setCurrentIndex(m_bootDevice->findData(int(m_loadedBootDevice)));
     describeFirmware();
+    updateResetVars();
+}
+
+/* The variable store in the VM folder, by the saved arguments, if it can be made again */
+static FirmwareFiles::File resettableVars(const Vm *vm)
+{
+    for (const FirmwareFiles::File &f : vm ? FirmwareRepair::files(vm)
+                                           : QList<FirmwareFiles::File>()) {
+        if (f.role == FirmwareFiles::File::Role::Vars && !f.templatePath.isEmpty()) {
+            return f;
+        }
+    }
+    return {};
+}
+
+void SystemPage::updateResetVars()
+{
+    const bool running = m_vm && m_vm->runner()->isActive();
+
+    m_resetVars->setVisible(!resettableVars(m_vm).path.isEmpty());
+    m_resetVars->setEnabled(!running);
+    m_resetVars->setToolTip(running ? tr("Shut the VM down first.")
+                                    : tr("For a system that no longer starts: the boot "
+                                         "entries and keys go back to those of a new VM."));
+}
+
+void SystemPage::resetVars()
+{
+    const FirmwareFiles::File vars = resettableVars(m_vm);
+
+    if (!vars.path.isEmpty() && FirmwareRepair::reset(this, m_vm, {vars}, tr("&Reset"))) {
+        m_firmwareInfo->setText(tr("The UEFI variables are those of a new VM again. The old "
+                                   "ones are kept in the VM folder, in a .bak file."));
+    }
 }
 
 void SystemPage::saveBoot(ArgsFile &args)

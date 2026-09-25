@@ -68,6 +68,8 @@ qt_add_executable(qemu-gui-manager
     src/ui/banner.h
     src/ui/clonedialog.cpp
     src/ui/clonedialog.h
+    src/ui/firmwarerepair.cpp
+    src/ui/firmwarerepair.h
     src/ui/icons.cpp
     src/ui/icons.h
     src/ui/importdialog.cpp

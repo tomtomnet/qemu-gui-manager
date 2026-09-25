@@ -85,7 +85,7 @@ class SystemPage : public SettingsPage
     Q_OBJECT
 
 public:
-    explicit SystemPage(QWidget *parent = nullptr);
+    explicit SystemPage(Vm *vm, QWidget *parent = nullptr);
 
     QString title() const override { return tr("System"); }
     QIcon icon() const override;
@@ -99,6 +99,9 @@ private:
     void saveBoot(ArgsFile &args);
     bool bootModified() const;
     void describeFirmware();
+    /* Reset UEFI Variables: for the variable store the saved arguments name */
+    void updateResetVars();
+    void resetVars();
 
     /* The QEMU chosen, empty for the default one */
     QString chosenQemu() const;
@@ -125,8 +128,10 @@ private:
     QRadioButton *m_ownQemu;
     QLineEdit *m_qemuPath;
     QLabel *m_qemuInfo;
+    Vm *m_vm;
     QComboBox *m_firmware;
     QLabel *m_firmwareInfo;
+    QPushButton *m_resetVars;
     QCheckBox *m_bootMenu;
     QComboBox *m_bootDevice;
     /* The firmware files apply() copies, until the dialog applies */

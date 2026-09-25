@@ -25,6 +25,8 @@
 #include <QUrl>
 #include <QVBoxLayout>
 
+#include <algorithm>
+
 #include "core/paths.h"
 #include "core/qemuinfo.h"
 #include "core/vmconfig.h"
@@ -32,6 +34,7 @@
 #include "core/vmrunner.h"
 #include "core/vmstore.h"
 #include "ui/clonedialog.h"
+#include "ui/firmwarerepair.h"
 #include "ui/icons.h"
 #include "ui/importdialog.h"
 #include "ui/memorymonitor.h"
@@ -485,6 +488,7 @@ void MainWindow::failed(Vm *vm, const QString &error)
 {
     const QString id = vm->id();
     const VmRunner::State state = vm->runner()->state();
+    QList<FirmwareFiles::File> firmware;
     QString title, text;
 
     if (state != VmRunner::State::Stopped) {
@@ -503,6 +507,7 @@ void MainWindow::failed(Vm *vm, const QString &error)
         if (m_starting.remove(id)) {
             title = tr("Cannot Start %1").arg(vm->name());
             text = tr("%1 could not start.").arg(vm->name());
+            firmware = FirmwareRepair::named(vm, error);
         } else if (from != VmRunner::State::Stopped) {
             title = tr("%1 Stopped").arg(vm->name());
             text = tr("%1 stopped unexpectedly.").arg(vm->name());
@@ -520,6 +525,22 @@ void MainWindow::failed(Vm *vm, const QString &error)
         connect(log, &QPushButton::clicked, this, [this, id]() {
             select(id);
             showLog();
+        });
+    }
+    /* QEMU refused a firmware copy */
+    if (!firmware.isEmpty()) {
+        const bool vars = std::all_of(firmware.begin(), firmware.end(), [](const auto &f) {
+            return f.role == FirmwareFiles::File::Role::Vars;
+        });
+        QPushButton *renew = box->addButton(vars ? tr("Reset UEFI &Variables…")
+                                                 : tr("&Replace Firmware Files…"),
+                                            QMessageBox::ActionRole);
+        connect(renew, &QPushButton::clicked, this, [this, id, firmware]() {
+            Vm *vm = m_store->find(id);
+            if (vm && FirmwareRepair::reset(this, vm, firmware, tr("&Replace and Start"))) {
+                select(id);
+                start();
+            }
         });
     }
     box->open();
@@ -740,6 +761,10 @@ void MainWindow::start()
         return;
     }
     if (m_askingUsb.contains(vm->id())) {
+        return;
+    }
+    /* firmware copies a power cut damaged, say: new ones, if the user wants */
+    if (!FirmwareRepair::checkBeforeStart(this, vm)) {
         return;
     }
     m_errors.remove(vm->id());

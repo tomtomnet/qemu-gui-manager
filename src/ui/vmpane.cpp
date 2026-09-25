@@ -182,7 +182,7 @@ void VmPane::buildPages()
             delete old;
         }
         if (m_vm) {
-            m_pages = {new GeneralPage(m_vm), new SystemPage,
+            m_pages = {new GeneralPage(m_vm), new SystemPage(m_vm),
                        new DisplayPage,        new StoragePage(m_vm->dir()),
                        new SharesPage,         new PciPage,
                        new UsbPage,            new ArgumentsPage(m_vm->dir())};
