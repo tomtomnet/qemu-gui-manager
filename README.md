@@ -196,3 +196,7 @@ your `PATH`, or skip.
 ## License
 
 GPL-2.0-or-later. See [LICENSE](LICENSE).
+
+The icon is the QEMU logo by Benoît Canet, under
+[CC BY 3.0](https://creativecommons.org/licenses/by/3.0/), with its colors
+inverted.
