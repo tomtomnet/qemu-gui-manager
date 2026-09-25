@@ -655,13 +655,27 @@ void MainWindow::shutDown()
     }
 }
 
+/* Asks before a destructive @action, which Enter does not trigger */
+static bool confirm(QWidget *parent, QMessageBox::Icon icon, const QString &title,
+                    const QString &text, const QString &action)
+{
+    QMessageBox box(icon, title, text, QMessageBox::Cancel, parent);
+    QPushButton *yes = box.addButton(action, QMessageBox::DestructiveRole);
+
+    /* the KDE dialog would make the action the default button */
+    box.setOption(QMessageBox::Option::DontUseNativeDialog);
+    box.setDefaultButton(QMessageBox::Cancel);
+    box.exec();
+    return box.clickedButton() == yes;
+}
+
 void MainWindow::reset()
 {
     Vm *vm = current();
 
-    if (vm && QMessageBox::question(this, tr("Reset %1?").arg(vm->name()),
-                                    tr("The VM restarts at once: the guest loses its unsaved "
-                                       "work.")) == QMessageBox::Yes) {
+    if (vm && confirm(this, QMessageBox::Warning, tr("Reset %1?").arg(vm->name()),
+                      tr("The VM restarts at once: the guest loses its unsaved work."),
+                      tr("&Reset"))) {
         vm->runner()->reset();
     }
 }
@@ -678,14 +692,10 @@ void MainWindow::forceOff()
         vm->runner()->forceOff();
         return;
     }
-    QMessageBox box(QMessageBox::Warning, tr("Force Off %1?").arg(vm->name()),
-                    tr("The VM stops at once, as when pulling the plug: the guest loses its "
-                       "unsaved work."),
-                    QMessageBox::Cancel, this);
-    QPushButton *off = box.addButton(tr("&Force Off"), QMessageBox::DestructiveRole);
-    box.setDefaultButton(QMessageBox::Cancel);
-    box.exec();
-    if (box.clickedButton() == off) {
+    if (confirm(this, QMessageBox::Warning, tr("Force Off %1?").arg(vm->name()),
+                tr("The VM stops at once, as when pulling the plug: the guest loses its "
+                   "unsaved work."),
+                tr("&Force Off"))) {
         vm->runner()->forceOff();
     }
 }
@@ -698,15 +708,12 @@ void MainWindow::remove()
     if (!vm || vm->runner()->isActive()) {
         return;
     }
-    QMessageBox box(QMessageBox::Question, tr("Remove %1?").arg(vm->name()),
-                    tr("The folder of %1, disks included, goes to the trash, where you can "
-                       "still restore it from.")
-                        .arg(vm->name()),
-                    QMessageBox::Cancel, this);
-    QPushButton *trash = box.addButton(tr("&Move to Trash"), QMessageBox::DestructiveRole);
-    box.setDefaultButton(QMessageBox::Cancel);
-    box.exec();
-    if (box.clickedButton() == trash && !m_store->remove(vm, &error)) {
+    if (confirm(this, QMessageBox::Question, tr("Remove %1?").arg(vm->name()),
+                tr("The folder of %1, disks included, goes to the trash, where you can "
+                   "still restore it from.")
+                    .arg(vm->name()),
+                tr("&Move to Trash")) &&
+        !m_store->remove(vm, &error)) {
         QMessageBox::warning(this, tr("Cannot Remove the VM"), error);
     }
 }

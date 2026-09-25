@@ -6,8 +6,6 @@
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QDir>
-#include <QFile>
-#include <QFileDialog>
 #include <QFileInfo>
 #include <QFontDatabase>
 #include <QGroupBox>
@@ -265,7 +263,8 @@ void SystemPage::fillLists()
 void SystemPage::describe()
 {
     const QemuInfo *info = m_docs->info();
-    const QString model = m_model->currentText().trimmed();
+    /* host,topoext=on: the model and its flags */
+    const QString model = m_model->currentText().section(',', 0, 0).trimmed();
     const QString machine = m_machine->currentText().trimmed();
     QString modelText, machineText;
 

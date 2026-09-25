@@ -4,15 +4,12 @@
 #include <QAbstractItemView>
 #include <QApplication>
 #include <QCompleter>
-#include <QDir>
 #include <QFileInfo>
 #include <QFontDatabase>
 #include <QHeaderView>
 #include <QKeyEvent>
-#include <QLabel>
 #include <QListWidget>
 #include <QRegularExpression>
-#include <QScrollBar>
 #include <QStandardItemModel>
 #include <QTextBlock>
 #include <QTimer>
@@ -393,6 +390,12 @@ void ArgsEditor::keyPressEvent(QKeyEvent *event)
         case Qt::Key_Escape:
         case Qt::Key_Backtab:
             m_completer->popup()->hide();
+            return;
+        case Qt::Key_Up:
+        case Qt::Key_Down:
+        case Qt::Key_PageUp:
+        case Qt::Key_PageDown:
+            QApplication::sendEvent(m_completer->popup(), event);
             return;
         default:
             break;

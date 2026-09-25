@@ -115,6 +115,7 @@ QWidget *browseRow(QLineEdit *edit, const QString &title, const QString &filter,
     layout->setContentsMargins(0, 0, 0, 0);
     layout->addWidget(edit, 1);
     layout->addWidget(browse);
+    row->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     row->setFocusProxy(edit);
     QObject::connect(browse, &QPushButton::clicked, edit, [=]() {
         const QString current = edit->text().trimmed().isEmpty() ? edit->placeholderText()

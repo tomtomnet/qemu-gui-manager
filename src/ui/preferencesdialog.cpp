@@ -1,16 +1,12 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "preferencesdialog.h"
 
-#include <QDesktopServices>
 #include <QDialogButtonBox>
 #include <QDir>
-#include <QFileDialog>
 #include <QFileInfo>
-#include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QProcess>
-#include <QPushButton>
 #include <QStandardPaths>
 #include <QTimer>
 #include <QUrl>
