@@ -3,6 +3,7 @@
 
 #include <QDialog>
 
+class QCheckBox;
 class QComboBox;
 class QLabel;
 class QLineEdit;
@@ -32,7 +33,9 @@ protected:
 
 private:
     QString sourceDir() const;
+    QStringList renderers() const;
     void build();
+    void updateVirglStatus();
     void finished(const QString &error);
     void updateState();
 
@@ -43,6 +46,16 @@ private:
     QLineEdit *m_dir;
     QComboBox *m_preset;
     QLineEdit *m_configure;
+    QRadioButton *m_virglSystem;
+    QRadioButton *m_virglOwn;
+    QCheckBox *m_xe;
+    QCheckBox *m_i915;
+    QCheckBox *m_amd;
+    QCheckBox *m_venus;
+    QLineEdit *m_virglPatches;
+    QLineEdit *m_virglRef;
+    QLineEdit *m_virglMeson;
+    QLabel *m_virglStatus;
     QLabel *m_step;
     QProgressBar *m_progress;
     QPlainTextEdit *m_log;

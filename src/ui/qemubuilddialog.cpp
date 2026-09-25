@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "qemubuilddialog.h"
 
+#include <QCheckBox>
 #include <QCloseEvent>
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -8,6 +9,7 @@
 #include <QFileInfo>
 #include <QFontDatabase>
 #include <QFormLayout>
+#include <QGridLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -19,6 +21,7 @@
 #include <QPushButton>
 #include <QRadioButton>
 #include <QSettings>
+#include <QStyle>
 #include <QVBoxLayout>
 
 #include "core/paths.h"
@@ -82,12 +85,58 @@ QemuBuildDialog::QemuBuildDialog(QWidget *parent)
     optionsLayout->addRow(tr("Build:"), m_preset);
     optionsLayout->addRow(tr("configure:"), m_configure);
     auto *deps = new QLabel(tr("Building needs QEMU's build dependencies, on Fedora: "
-                               "<code>sudo dnf builddep qemu</code>, and an internet "
-                               "connection the first time."));
+                               "<code>sudo dnf builddep qemu</code> (and "
+                               "<code>virglrenderer</code> for a virglrenderer of its own), "
+                               "and an internet connection the first time."));
     deps->setWordWrap(true);
     deps->setTextInteractionFlags(Qt::TextSelectableByMouse);
     optionsLayout->addRow(deps);
     layout->addWidget(options);
+
+    /* virglrenderer */
+    auto *virgl = new QGroupBox(tr("3D acceleration (virglrenderer)"));
+    auto *virglLayout = new QFormLayout(virgl);
+    auto *renderers = new QGridLayout;
+    const QStringList chosen = settings.value("build/virglRenderers").toStringList();
+
+    m_virglSystem = new QRadioButton(tr("The system's virglrenderer"));
+    m_virglOwn = new QRadioButton(tr("One built by the manager, with DRM native context for:"));
+    m_virglOwn->setToolTip(tr("Built into %1, which this QEMU loads instead of the "
+                              "system's; rebuilding it takes effect at the next start of "
+                              "a VM").arg(QemuBuilder::defaultVirglDir()));
+    m_xe = new QCheckBox(tr("Intel Xe: Arc, Core Ultra and newer (patched)"));
+    m_xe->setToolTip(tr("With the patch of github.com/cmspam/xe-native-context-enablement. "
+                        "The guest needs the Mesa patch from there too."));
+    m_i915 = new QCheckBox(tr("Intel i915: older Intel graphics"));
+    m_amd = new QCheckBox(tr("AMD"));
+    m_venus = new QCheckBox(tr("Vulkan through Venus"));
+    m_xe->setChecked(chosen.contains("xe-experimental"));
+    m_i915->setChecked(chosen.contains("i915-experimental"));
+    m_amd->setChecked(chosen.contains("amdgpu-experimental"));
+    m_venus->setChecked(settings.value("build/virglVenus").toBool());
+    renderers->setContentsMargins(style()->pixelMetric(QStyle::PM_IndicatorWidth), 0, 0, 0);
+    renderers->addWidget(m_xe, 0, 0);
+    renderers->addWidget(m_i915, 0, 1);
+    renderers->addWidget(m_amd, 1, 0);
+    renderers->addWidget(m_venus, 1, 1);
+    m_virglPatches = new QLineEdit(settings.value("build/virglPatches").toString());
+    m_virglPatches->setToolTip(tr("Patch files or URLs, separated by spaces"));
+    m_virglRef = new QLineEdit(settings.value("build/virglRef").toString());
+    m_virglRef->setPlaceholderText(tr("main, or the newest release the patches apply to"));
+    m_virglMeson = new QLineEdit(settings.value("build/virglMeson").toString());
+    m_virglMeson->setPlaceholderText(tr("More meson options"));
+    m_virglStatus = new QLabel;
+    m_virglStatus->setWordWrap(true);
+    m_virglStatus->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    virglLayout->addRow(m_virglSystem);
+    virglLayout->addRow(m_virglOwn);
+    virglLayout->addRow(renderers);
+    virglLayout->addRow(tr("Patches:"), m_virglPatches);
+    virglLayout->addRow(tr("Version:"), m_virglRef);
+    virglLayout->addRow(tr("meson:"), m_virglMeson);
+    virglLayout->addRow(m_virglStatus);
+    (settings.value("build/virgl").toBool() ? m_virglOwn : m_virglSystem)->setChecked(true);
+    layout->addWidget(virgl);
 
     /* progress */
     m_step = new QLabel;
@@ -130,6 +179,17 @@ QemuBuildDialog::QemuBuildDialog(QWidget *parent)
             m_own->setChecked(true);
         }
     });
+    /* the Xe renderer comes with its patch */
+    connect(m_xe, &QCheckBox::toggled, this, [this](bool on) {
+        QStringList patches = QProcess::splitCommand(m_virglPatches->text());
+        if (on && !patches.contains(QemuBuilder::xePatchUrl())) {
+            patches << QemuBuilder::xePatchUrl();
+        } else if (!on) {
+            patches.removeAll(QemuBuilder::xePatchUrl());
+        }
+        m_virglPatches->setText(patches.join(' '));
+    });
+    connect(m_virglOwn, &QRadioButton::toggled, this, &QemuBuildDialog::updateState);
     connect(m_managed, &QRadioButton::toggled, this, &QemuBuildDialog::updateState);
     connect(m_dir, &QLineEdit::textChanged, this, &QemuBuildDialog::updateState);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::close);
@@ -155,12 +215,37 @@ QemuBuildDialog::QemuBuildDialog(QWidget *parent)
     connect(m_builder, &QemuBuilder::finished, this, &QemuBuildDialog::finished);
 
     updateState();
-    resize(760, 620);
+    updateVirglStatus();
+    resize(760, 780);
 }
 
 QString QemuBuildDialog::sourceDir() const
 {
     return m_managed->isChecked() ? QemuBuilder::defaultSourceDir() : m_dir->text().trimmed();
+}
+
+QStringList QemuBuildDialog::renderers() const
+{
+    QStringList list;
+
+    if (m_xe->isChecked()) {
+        list << "xe-experimental";
+    }
+    if (m_i915->isChecked()) {
+        list << "i915-experimental";
+    }
+    if (m_amd->isChecked()) {
+        list << "amdgpu-experimental";
+    }
+    return list;
+}
+
+void QemuBuildDialog::updateVirglStatus()
+{
+    const QString lib = QemuBuilder::loadedVirgl(QemuBuilder::binary(sourceDir()));
+
+    m_virglStatus->setText(lib.isEmpty() ? QString()
+                                         : tr("This QEMU loads %1").arg(lib));
 }
 
 void QemuBuildDialog::build()
@@ -173,12 +258,26 @@ void QemuBuildDialog::build()
     settings.setValue("build/dir", m_dir->text().trimmed());
     settings.setValue("build/branch", m_branch->text().trimmed());
     settings.setValue("build/configure", m_configure->text().simplified());
+    settings.setValue("build/virgl", m_virglOwn->isChecked());
+    settings.setValue("build/virglRenderers", renderers());
+    settings.setValue("build/virglVenus", m_venus->isChecked());
+    settings.setValue("build/virglPatches", m_virglPatches->text().simplified());
+    settings.setValue("build/virglRef", m_virglRef->text().trimmed());
+    settings.setValue("build/virglMeson", m_virglMeson->text().simplified());
 
     options.sourceDir = sourceDir();
     options.url = QemuBuilder::defaultUrl();
     options.branch = m_branch->text().trimmed();
     options.update = managed;
     options.configureArgs = QProcess::splitCommand(m_configure->text());
+    options.virgl.enabled = m_virglOwn->isChecked();
+    options.virgl.dir = QemuBuilder::defaultVirglDir();
+    options.virgl.url = QemuBuilder::defaultVirglUrl();
+    options.virgl.ref = m_virglRef->text().trimmed();
+    options.virgl.patches = QProcess::splitCommand(m_virglPatches->text());
+    options.virgl.renderers = renderers();
+    options.virgl.venus = m_venus->isChecked();
+    options.virgl.mesonArgs = QProcess::splitCommand(m_virglMeson->text());
     if (!managed && !QFileInfo::exists(options.sourceDir + "/configure")) {
         QMessageBox::warning(this, windowTitle(),
                              tr("%1 has no configure script: pick the top folder of a QEMU "
@@ -206,6 +305,7 @@ void QemuBuildDialog::finished(const QString &error)
     } else {
         m_step->setText(error + tr(", see the log below."));
     }
+    updateVirglStatus();
     updateState();
 }
 
@@ -219,6 +319,12 @@ void QemuBuildDialog::updateState()
     m_build->setEnabled(!running);
     m_build->setText(m_managed->isChecked() ? tr("Update and Build") : tr("Build"));
     m_cancel->setVisible(running);
+    for (QWidget *w : std::initializer_list<QWidget *>{
+             m_virglSystem, m_virglOwn, m_xe, m_i915, m_amd, m_venus, m_virglPatches,
+             m_virglRef, m_virglMeson}) {
+        w->setEnabled(!running && (w == m_virglSystem || w == m_virglOwn ||
+                                   m_virglOwn->isChecked()));
+    }
     m_use->setEnabled(!running && QFileInfo(binary).isExecutable() &&
                       Paths::qemuBinary() != binary);
 }

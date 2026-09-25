@@ -12,12 +12,36 @@ class QProcess;
  * build tree (again only when the options change) and compiles just the
  * emulator and qemu-img.  QEMU then runs from the build tree, which also
  * gives the reference the full documentation.
+ *
+ * It can first build a virglrenderer of its own, patched and with the DRM
+ * native context renderers of your choice, into the data folder as well.
+ * QEMU is then built against it, and loads it from there (rpath) rather
+ * than the one of the system, which stays as it is.  Rebuilding
+ * virglrenderer takes effect at the next start of a VM, without
+ * rebuilding QEMU.
  */
 class QemuBuilder : public QObject
 {
     Q_OBJECT
 
 public:
+    struct Virgl {
+        bool enabled = false;
+        /* Holds src/ (the checkout, reset and cleaned for each build),
+           patches/, build/ and install/ */
+        QString dir;
+        QString url;
+        /* A branch or tag; empty for main, else the newest of the last
+           releases that the patches apply to */
+        QString ref;
+        /* Files, or http(s) and file URLs, downloaded for each build */
+        QStringList patches;
+        /* -Ddrm-renderers, e.g. xe-experimental */
+        QStringList renderers;
+        bool venus = false;
+        QStringList mesonArgs;
+    };
+
     struct Options {
         QString sourceDir;          // cloned from url if it doesn't exist
         QString url;
@@ -25,6 +49,9 @@ public:
         /* Fetch the branch first, discarding changes to the checkout */
         bool update = true;
         QStringList configureArgs;
+        Virgl virgl;
+        /* Parallel compile jobs, 0 for defaultJobs() */
+        int jobs = 0;
     };
 
     static QString defaultSourceDir();
@@ -34,6 +61,17 @@ public:
     /* build-qgm in @sourceDir */
     static QString buildDir(const QString &sourceDir);
     static QString binary(const QString &sourceDir);
+
+    static QString defaultVirglDir();
+    static QString defaultVirglUrl();
+    /* The Xe native context patch of github.com/cmspam/xe-native-context-enablement */
+    static QString xePatchUrl();
+    /* Where the virglrenderer built in @virglDir installs its library */
+    static QString virglLibDir(const QString &virglDir);
+    /* The libvirglrenderer that @binary loads, as ldd resolves it */
+    static QString loadedVirgl(const QString &binary);
+    /* The cores, but no more than the memory affords, about 1 GiB each */
+    static int defaultJobs();
 
     explicit QemuBuilder(QObject *parent = nullptr);
     ~QemuBuilder() override;
@@ -59,13 +97,16 @@ private:
         QStringList args;
         QString dir;
         bool configure = false;
+        QStringList env = {};       // NAME=value
     };
 
+    void addVirglSteps(const Virgl &virgl, int jobs);
     void runNext();
     void parseProgress(const QString &text);
 
     QList<Step> m_steps;
     Options m_options;
+    QStringList m_configureArgs;    // with those virglrenderer adds
     QProcess *m_process = nullptr;
     QString m_line;
     bool m_cancelled = false;

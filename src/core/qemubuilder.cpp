@@ -5,12 +5,49 @@
 #include <QFile>
 #include <QProcess>
 #include <QRegularExpression>
+#include <QThread>
 #include <QTimer>
+#include <QUrl>
 
 #include "core/paths.h"
 
 /* The options the build tree was configured with, to know when to redo it */
 static const char kStamp[] = "/qgm-configure-args";
+
+/*
+ * sh -c SCRIPT sh DIR REF PATCH...: checks out REF, or else the newest of
+ * main and the last releases that all the patches apply to, then applies
+ * them
+ */
+static const char kApplyPatches[] = R"sh(cd "$1" || exit 1
+want=$2
+shift 2
+if [ -n "$want" ]; then
+    refs=$want
+else
+    refs="origin/HEAD $(git tag --sort=-creatordate | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | head -n 5)"
+fi
+for ref in $refs; do
+    if git rev-parse -q --verify "origin/$ref" >/dev/null; then
+        ref=origin/$ref
+    fi
+    git checkout -q -f --detach "$ref" && git clean -q -f -d -x || exit 1
+    ok=1
+    for p in "$@"; do
+        git apply --check "$p" 2>/dev/null || { ok=0; break; }
+    done
+    if [ "$ok" = 1 ]; then
+        for p in "$@"; do
+            git apply "$p" || exit 1
+        done
+        echo "virglrenderer $ref, with $# patch(es)"
+        exit 0
+    fi
+    echo "The patches do not apply to $ref"
+done
+echo "The patches apply to none of: $refs" >&2
+exit 1
+)sh";
 
 QString QemuBuilder::defaultSourceDir()
 {
@@ -42,6 +79,67 @@ QString QemuBuilder::binary(const QString &sourceDir)
     return buildDir(sourceDir) + "/qemu-system-x86_64";
 }
 
+QString QemuBuilder::defaultVirglDir()
+{
+    return Paths::dataDir() + "/virglrenderer";
+}
+
+QString QemuBuilder::defaultVirglUrl()
+{
+    return "https://gitlab.freedesktop.org/virgl/virglrenderer.git";
+}
+
+QString QemuBuilder::xePatchUrl()
+{
+    return "https://raw.githubusercontent.com/cmspam/xe-native-context-enablement/master/"
+           "virglrenderer-xe-native-context.patch";
+}
+
+QString QemuBuilder::virglLibDir(const QString &virglDir)
+{
+    return virglDir + "/install/lib";
+}
+
+QString QemuBuilder::loadedVirgl(const QString &binary)
+{
+    static const QRegularExpression line("libvirglrenderer\\.so[.\\d]*\\s+=>\\s+(\\S+)");
+    const QFileInfo fi(binary);
+
+    /* built with modules, virtio-gpu-gl and virglrenderer come as one */
+    for (const QString &file : {fi.filePath(), fi.dir().filePath("hw-display-virtio-gpu-gl.so")}) {
+        QProcess ldd;
+
+        if (!QFileInfo::exists(file)) {
+            continue;
+        }
+        ldd.start("ldd", {file});
+        if (!ldd.waitForFinished(5000)) {
+            continue;
+        }
+        const QRegularExpressionMatch m =
+            line.match(QString::fromLocal8Bit(ldd.readAllStandardOutput()));
+        if (m.hasMatch()) {
+            return QFileInfo(m.captured(1)).canonicalFilePath();
+        }
+    }
+    return {};
+}
+
+int QemuBuilder::defaultJobs()
+{
+    static const QRegularExpression total("MemTotal:\\s+(\\d+) kB");
+    QFile meminfo("/proc/meminfo");
+    int memoryGiB = 4;
+
+    if (meminfo.open(QIODevice::ReadOnly)) {
+        const QRegularExpressionMatch m = total.match(QString::fromLatin1(meminfo.readAll()));
+        if (m.hasMatch()) {
+            memoryGiB = int(m.captured(1).toLongLong() >> 20);
+        }
+    }
+    return qBound(1, qMin(QThread::idealThreadCount(), memoryGiB - 1), 64);
+}
+
 QemuBuilder::QemuBuilder(QObject *parent) : QObject(parent)
 {
 }
@@ -58,15 +156,29 @@ QemuBuilder::~QemuBuilder()
 void QemuBuilder::start(const Options &options)
 {
     const QString build = buildDir(options.sourceDir);
+    const int jobs = options.jobs > 0 ? options.jobs : defaultJobs();
     QFile stamp(build + kStamp);
     QString configured;
+    QStringList env;
 
     if (isRunning()) {
         return;
     }
     m_options = options;
+    m_configureArgs = options.configureArgs;
     m_steps.clear();
     m_cancelled = false;
+
+    if (options.virgl.enabled) {
+        const QString lib = virglLibDir(options.virgl.dir);
+        const QString pkgConfigPath = qEnvironmentVariable("PKG_CONFIG_PATH");
+
+        addVirglSteps(options.virgl, jobs);
+        /* QEMU builds against it, and loads it from there */
+        env << "PKG_CONFIG_PATH=" + lib + "/pkgconfig" +
+                   (pkgConfigPath.isEmpty() ? QString() : ':' + pkgConfigPath);
+        m_configureArgs << "--extra-ldflags=-Wl,-rpath," + lib;
+    }
 
     if (!QFileInfo::exists(options.sourceDir + "/.git")) {
         m_steps << Step{tr("Downloading QEMU"), "git",
@@ -83,12 +195,57 @@ void QemuBuilder::start(const Options &options)
         configured = QString::fromUtf8(stamp.readAll());
     }
     if (!QFileInfo::exists(build + "/build.ninja") ||
-        configured != options.configureArgs.join('\n')) {
+        configured != m_configureArgs.join('\n')) {
         m_steps << Step{tr("Configuring"), options.sourceDir + "/configure",
-                        options.configureArgs, build, true};
+                        m_configureArgs, build, true, env};
     }
-    m_steps << Step{tr("Compiling"), "ninja", {"qemu-system-x86_64", "qemu-img"}, build};
+    m_steps << Step{tr("Compiling"), "ninja",
+                    {"-j", QString::number(jobs), "qemu-system-x86_64", "qemu-img"},
+                    build, false, env};
     runNext();
+}
+
+void QemuBuilder::addVirglSteps(const Virgl &virgl, int jobs)
+{
+    const QString src = virgl.dir + "/src";
+    const QString build = virgl.dir + "/build";
+    const QString patchDir = virgl.dir + "/patches";
+    QStringList patches, meson;
+
+    if (!QFileInfo::exists(src + "/.git")) {
+        m_steps << Step{tr("Downloading virglrenderer"), "git",
+                        {"clone", "--quiet", virgl.url, src}, {}};
+    } else if (m_options.update) {
+        m_steps << Step{tr("Downloading the changes to virglrenderer"), "git",
+                        {"fetch", "--quiet", "--tags", "--force", "origin"}, src};
+    }
+    for (qsizetype i = 0; i < virgl.patches.size(); i++) {
+        const QString &patch = virgl.patches[i];
+        const QString name = QUrl(patch).fileName();
+
+        if (!patch.contains("://")) {
+            patches << QFileInfo(patch).absoluteFilePath();
+            continue;
+        }
+        patches << QString("%1/%2-%3").arg(patchDir).arg(i + 1)
+                       .arg(name.isEmpty() ? QString("patch") : name);
+        m_steps << Step{tr("Downloading %1").arg(name), "curl",
+                        {"--fail", "--silent", "--show-error", "--location", "--retry", "2",
+                         "--output", patches.last(), patch}, patchDir};
+    }
+    m_steps << Step{tr("Patching virglrenderer"), "sh",
+                    QStringList{"-c", kApplyPatches, "sh", src, virgl.ref} + patches, src};
+
+    meson << "setup" << build << src << "--prefix=" + virgl.dir + "/install"
+          << "--libdir=lib" << "--buildtype=release"
+          << "-Ddrm-renderers=" + virgl.renderers.join(',')
+          << QString("-Dvenus=%1").arg(virgl.venus ? "true" : "false") << virgl.mesonArgs;
+    if (QFileInfo::exists(build + "/build.ninja")) {
+        meson.insert(1, "--reconfigure");
+    }
+    m_steps << Step{tr("Configuring virglrenderer"), "meson", meson, virgl.dir};
+    m_steps << Step{tr("Compiling virglrenderer"), "ninja",
+                    {"-C", build, "-j", QString::number(jobs), "install"}, virgl.dir};
 }
 
 void QemuBuilder::cancel()
@@ -119,6 +276,13 @@ void QemuBuilder::runNext()
     m_process = new QProcess(this);
     m_process->setProcessChannelMode(QProcess::MergedChannels);
     m_process->setWorkingDirectory(step.dir);
+    if (!step.env.isEmpty()) {
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        for (const QString &var : step.env) {
+            env.insert(var.section('=', 0, 0), var.section('=', 1));
+        }
+        m_process->setProcessEnvironment(env);
+    }
     connect(m_process, &QProcess::readyRead, this, [this]() {
         const QString text = QString::fromLocal8Bit(m_process->readAll());
         emit output(text);
@@ -147,7 +311,7 @@ void QemuBuilder::runNext()
         if (step.configure) {
             QFile stamp(buildDir(m_options.sourceDir) + kStamp);
             if (stamp.open(QIODevice::WriteOnly)) {
-                stamp.write(m_options.configureArgs.join('\n').toUtf8());
+                stamp.write(m_configureArgs.join('\n').toUtf8());
             }
         }
         m_steps.removeFirst();
