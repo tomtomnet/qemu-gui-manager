@@ -10,7 +10,9 @@
 /*
  * The arguments of a new VM: a modern machine with KVM, virtio devices for
  * Linux and devices Windows has drivers for, shared memory for virtiofs,
- * and the clipboard channel of spice-vdagent.
+ * and the clipboard channel of spice-vdagent.  On x86-64 a q35 PC, on
+ * aarch64 (Asahi Linux on Apple silicon) the virt machine, which has no
+ * VGA, IDE or PS/2: PCI graphics, virtio and SCSI disks, USB input.
  */
 namespace VmTemplate {
 
@@ -27,6 +29,10 @@ struct Options {
     QString disk;
     QString iso;
     Graphics graphics = Graphics::Accelerated;
+    /* DRM native context, for Accelerated */
+    bool nativeContext = false;
+    /* QEMU's name of the guest architecture; empty for the host's */
+    QString arch;
 };
 
 struct Defaults {
@@ -38,8 +44,9 @@ struct Defaults {
 };
 Defaults defaults(Os os);
 
-/* The disk format for the file name, empty when unknown */
-QString diskFormat(const QString &path);
+/* What the machine of @arch (empty for the host's) offers */
+bool hasBios(const QString &arch = {});
+bool hasVga(const QString &arch = {});
 
 /*
  * The arguments, in sections.  @addFirmware is called where the firmware

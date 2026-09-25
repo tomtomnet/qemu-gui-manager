@@ -35,7 +35,8 @@ SettingsDialog::SettingsDialog(Vm *vm, QWidget *parent)
     const QSettings settings(Paths::settingsPath(), QSettings::IniFormat);
 
     setWindowTitle(tr("%1 — Settings").arg(vm->name()));
-    m_pages = {new GeneralPage(vm), new SystemPage, new SharesPage,
+    m_pages = {new GeneralPage(vm), new SystemPage, new DisplayPage,
+               new StoragePage(vm->dir()), new SharesPage,
                new PciPage,         new UsbPage,    new ArgumentsPage(vm->dir())};
 
     m_list->setObjectName("pages");
@@ -158,6 +159,13 @@ bool SettingsDialog::apply()
     }
     if (m_pages[m_current]->isModified()) {
         m_pages[m_current]->save(m_args);
+    }
+    /* new disks, firmware copies: now that the arguments are final */
+    for (SettingsPage *page : std::as_const(m_pages)) {
+        if (!page->commit(m_args, m_vm->dir(), &error)) {
+            QMessageBox::warning(this, tr("Cannot Save the Settings"), error);
+            return false;
+        }
     }
     if (m_args.toText() != m_vm->args().toText() && !m_vm->save(m_args, &error)) {
         QMessageBox::warning(this, tr("Cannot Save the Settings"), error);

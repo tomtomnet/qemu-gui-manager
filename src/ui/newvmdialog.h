@@ -3,7 +3,7 @@
 
 #include <QDialog>
 
-#include "ui/vmtemplate.h"
+#include "core/vmtemplate.h"
 
 class QButtonGroup;
 class QCheckBox;
@@ -51,6 +51,7 @@ private:
     QLineEdit *m_iso;
     QComboBox *m_firmware;
     QComboBox *m_graphics;
+    QCheckBox *m_nativeContext;
     QLabel *m_note;
     QCheckBox *m_settings;
     Vm *m_vm = nullptr;

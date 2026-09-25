@@ -34,6 +34,8 @@ NewVmDialog::NewVmDialog(VmStore *store, QWidget *parent)
       m_existingDisk(new QRadioButton(tr("&Use an existing disk:"))),
       m_diskPath(new QLineEdit), m_noDisk(new QRadioButton(tr("N&o disk"))),
       m_iso(new QLineEdit), m_firmware(new QComboBox), m_graphics(new QComboBox),
+      m_nativeContext(new QCheckBox(tr("DRM &native context: the guest uses the GPU through "
+                                       "its own driver"))),
       m_note(Widgets::hint()), m_settings(new QCheckBox(tr("Open the &settings after creating it")))
 {
     auto *layout = new QVBoxLayout(this);
@@ -104,12 +106,20 @@ NewVmDialog::NewVmDialog(VmStore *store, QWidget *parent)
     m_firmware->setObjectName("firmware");
     m_firmware->addItem(tr("UEFI"), int(TemplateFirmware::Uefi));
     m_firmware->addItem(tr("UEFI with Secure Boot"), int(TemplateFirmware::UefiSecureBoot));
-    m_firmware->addItem(tr("BIOS, for old systems"), int(TemplateFirmware::Bios));
+    /* ARM's virt boots with UEFI only, and has no VGA */
+    if (VmTemplate::hasBios()) {
+        m_firmware->addItem(tr("BIOS, for old systems"), int(TemplateFirmware::Bios));
+    }
     m_graphics->setObjectName("graphics");
     m_graphics->addItem(tr("3D accelerated (virtio-gpu with OpenGL)"),
                         int(Graphics::Accelerated));
-    m_graphics->addItem(tr("Standard (virtio-vga)"), int(Graphics::Standard));
-    m_graphics->addItem(tr("Compatible (VGA)"), int(Graphics::Compatible));
+    if (VmTemplate::hasVga()) {
+        m_graphics->addItem(tr("Standard (virtio-vga)"), int(Graphics::Standard));
+        m_graphics->addItem(tr("Compatible (VGA)"), int(Graphics::Compatible));
+    } else {
+        m_graphics->addItem(tr("2D (virtio-gpu)"), int(Graphics::Standard));
+    }
+    m_nativeContext->setObjectName("nativeContext");
 
     form->addRow(tr("&Name:"), m_name);
     form->addRow(tr("&System:"), m_os);
@@ -122,12 +132,20 @@ NewVmDialog::NewVmDialog(VmStore *store, QWidget *parent)
                                     tr("Disc images (*.iso);;All files (*)")));
     form->addRow(tr("&Firmware:"), m_firmware);
     form->addRow(tr("&Graphics:"), m_graphics);
+    form->addRow(QString(), m_nativeContext);
+    form->addRow(QString(), Widgets::hint(tr("Native context needs a virglrenderer built with it "
+                                             "for this GPU (File > Build QEMU) and native "
+                                             "context support in the guest's Mesa.")));
     layout->addLayout(form);
     layout->addWidget(m_settings);
     layout->addStretch();
     layout->addWidget(buttons);
 
     connect(m_os, &QComboBox::currentIndexChanged, this, &NewVmDialog::applyDefaults);
+    connect(m_graphics, &QComboBox::currentIndexChanged, this, [this]() {
+        m_nativeContext->setEnabled(m_graphics->currentData().toInt() ==
+                                    int(Graphics::Accelerated));
+    });
     connect(diskGroup, &QButtonGroup::buttonToggled, this, &NewVmDialog::updateDisk);
     connect(buttons, &QDialogButtonBox::accepted, this, &NewVmDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
@@ -146,21 +164,30 @@ void NewVmDialog::applyDefaults()
     m_memory->setValue(int(qMin<qint64>(d.memoryMiB, qMax(m_memory->maximum() / 2, 1024))));
     m_cpus->setValue(qMin(d.cpus, qMax(m_cpus->maximum() / 2, 1)));
     m_diskSize->setValue(d.diskGiB);
-    m_firmware->setCurrentIndex(m_firmware->findData(int(d.firmware)));
-    m_graphics->setCurrentIndex(m_graphics->findData(int(d.graphics)));
+    m_firmware->setCurrentIndex(qMax(0, m_firmware->findData(int(d.firmware))));
+    /* no Compatible without VGA: 2D */
+    m_graphics->setCurrentIndex(m_graphics->findData(int(d.graphics)) >= 0
+                                    ? m_graphics->findData(int(d.graphics))
+                                    : m_graphics->findData(int(Graphics::Standard)));
+    m_nativeContext->setEnabled(m_graphics->currentData().toInt() == int(Graphics::Accelerated));
 
     switch (os) {
     case Os::Linux:
         m_note->setText(tr("Linux uses fast virtio devices and 3D graphics."));
         break;
     case Os::Windows11:
-        m_note->setText(tr("Windows uses a SATA disk and an Intel network card, which need no "
-                           "extra drivers. Windows 11 also checks for a TPM, which the "
-                           "manager does not provide yet."));
-        break;
     case Os::Windows:
-        m_note->setText(tr("Windows uses a SATA disk and an Intel network card, which need no "
-                           "extra drivers."));
+        if (!VmTemplate::hasVga()) {
+            m_note->setText(tr("Windows on ARM uses virtio devices: keep the virtio-win "
+                               "drivers at hand."));
+        } else if (os == Os::Windows11) {
+            m_note->setText(tr("Windows uses a SATA disk and an Intel network card, which need "
+                               "no extra drivers. Windows 11 also checks for a TPM, which the "
+                               "manager does not provide yet."));
+        } else {
+            m_note->setText(tr("Windows uses a SATA disk and an Intel network card, which need "
+                               "no extra drivers."));
+        }
         break;
     case Os::Other:
         m_note->setText(tr("Devices most systems have drivers for."));
@@ -231,6 +258,7 @@ bool NewVmDialog::create(Vm *vm, QString *error)
     o.memoryMiB = m_memory->value();
     o.cpus = m_cpus->value();
     o.graphics = Graphics(m_graphics->currentData().toInt());
+    o.nativeContext = o.graphics == Graphics::Accelerated && m_nativeContext->isChecked();
     o.iso = QDir::cleanPath(m_iso->text().trimmed());
     if (m_iso->text().trimmed().isEmpty()) {
         o.iso.clear();

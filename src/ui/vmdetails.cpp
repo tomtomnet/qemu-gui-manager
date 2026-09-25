@@ -16,6 +16,7 @@
 #include "core/hostdevices.h"
 #include "core/qemuinfo.h"
 #include "core/vmconfig.h"
+#include "core/vmhardware.h"
 #include "core/vmrunner.h"
 #include "core/vmstore.h"
 #include "ui/banner.h"
@@ -175,8 +176,8 @@ QString VmDetails::html() const
     /* System */
     const qint64 memory = VmConfig::memoryMiB(args);
     const VmConfig::Cpus cpus = VmConfig::cpus(args);
-    const QString machine = UiConfig::machineType(args);
-    const QString accel = UiConfig::accel(args);
+    const QString machine = VmConfig::machineType(args);
+    const QString accel = VmConfig::accel(args);
     QString processors = QString::number(cpus.count);
     QString accelText;
 
@@ -207,10 +208,10 @@ QString VmDetails::html() const
 
     /* Storage */
     Rows storage;
-    for (const UiConfig::Disk &disk : UiConfig::disks(args)) {
+    for (const VmConfig::Disk &disk : VmConfig::disks(args)) {
         QString kind = disk.cdrom ? tr("CD/DVD") : tr("Disk");
-        if (!disk.interface.isEmpty()) {
-            kind += QString(" (%1)").arg(disk.interface);
+        if (disk.bus != VmConfig::Disk::Other) {
+            kind += QString(" (%1)").arg(UiConfig::busName(disk.bus));
         }
         storage << std::pair(kind, disk.file.isEmpty() ? text(tr("empty")) : text(disk.file));
     }

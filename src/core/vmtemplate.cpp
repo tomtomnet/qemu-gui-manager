@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "vmtemplate.h"
 
-#include <QFileInfo>
-
+#include "core/paths.h"
 #include "core/vmconfig.h"
+#include "core/vmhardware.h"
 
 namespace VmTemplate {
 
@@ -22,26 +22,27 @@ Defaults defaults(Os os)
     return {2048, 2, 32, Firmware::Uefi, Graphics::Compatible};
 }
 
-QString diskFormat(const QString &path)
+static bool isArm(const QString &arch)
 {
-    const QString suffix = QFileInfo(path).suffix().toLower();
+    return (arch.isEmpty() ? Paths::hostArch() : arch) == "aarch64";
+}
 
-    if (suffix == "qcow2" || suffix == "vdi" || suffix == "vmdk" || suffix == "vhdx") {
-        return suffix;
-    }
-    if (suffix == "vhd") {
-        return "vpc";
-    }
-    if (suffix == "img" || suffix == "raw") {
-        return "raw";
-    }
-    return {};
+bool hasBios(const QString &arch)
+{
+    return !isArm(arch);
+}
+
+bool hasVga(const QString &arch)
+{
+    return !isArm(arch);
 }
 
 ArgsFile build(const Options &o, const std::function<void(ArgsFile &)> &addFirmware)
 {
+    const bool arm = isArm(o.arch);
     const bool windows = o.os == Os::Windows11 || o.os == Os::Windows;
-    const bool virtio = o.os == Os::Linux;
+    /* virt has no IDE: virtio for all */
+    const bool virtio = o.os == Os::Linux || arm;
     ArgsFile args;
     qsizetype sectionStart = 0;
 
@@ -70,12 +71,14 @@ ArgsFile build(const Options &o, const std::function<void(ArgsFile &)> &addFirmw
     VmConfig::setName(args, o.name);
 
     section("System");
-    option("machine", "q35,memory-backend=mem");
+    option("machine", arm ? "virt,gic-version=max,memory-backend=mem"
+                          : "q35,memory-backend=mem");
     option("accel", "kvm");
-    option("cpu", windows ? "host,hv-relaxed,hv-vapic,hv-spinlocks=0x1fff,hv-vpindex,"
-                            "hv-runtime,hv-time,hv-synic,hv-stimer,hv-frequencies,"
-                            "hv-tlbflush,hv-ipi"
-                          : "host");
+    option("cpu", windows && !arm
+                      ? "host,hv-relaxed,hv-vapic,hv-spinlocks=0x1fff,hv-vpindex,"
+                        "hv-runtime,hv-time,hv-synic,hv-stimer,hv-frequencies,"
+                        "hv-tlbflush,hv-ipi"
+                      : "host");
     option("smp", QString::number(o.cpus));
     /* memfd RAM, which virtiofsd can map to share folders */
     option("object", QString("memory-backend-memfd,id=mem,size=%1,share=on")
@@ -96,21 +99,27 @@ ArgsFile build(const Options &o, const std::function<void(ArgsFile &)> &addFirmw
     section("Display");
     switch (o.graphics) {
     case Graphics::Accelerated:
-        option("device", "virtio-vga-gl");
+        option("device", arm ? "virtio-gpu-gl-pci" : "virtio-vga-gl");
         break;
     case Graphics::Standard:
-        option("device", "virtio-vga");
+        option("device", arm ? "virtio-gpu-pci" : "virtio-vga");
         break;
     case Graphics::Compatible:
-        option("device", "VGA");
+        /* virt has no VGA */
+        option("device", arm ? "virtio-gpu-pci" : "VGA");
         break;
     }
     option("display", "sdl,gl=on");
+    if (o.nativeContext && o.graphics == Graphics::Accelerated) {
+        VmConfig::Graphics g = VmConfig::graphics(args);
+        g.nativeContext = true;
+        VmConfig::setGraphics(args, g);
+    }
 
     if (!o.disk.isEmpty() || !o.iso.isEmpty()) {
         section("Storage");
         if (!o.disk.isEmpty()) {
-            const QString format = diskFormat(o.disk);
+            const QString format = VmConfig::diskFormat(o.disk);
             QString value = "file=" + OptionValue::escape(o.disk);
 
             if (!format.isEmpty()) {
@@ -121,7 +130,14 @@ ArgsFile build(const Options &o, const std::function<void(ArgsFile &)> &addFirmw
             option("drive", value);
         }
         if (!o.iso.isEmpty()) {
-            option("drive", "file=" + OptionValue::escape(o.iso) + ",media=cdrom,readonly=on");
+            const QString iso = "file=" + OptionValue::escape(o.iso) + ",media=cdrom,readonly=on";
+            if (arm) {
+                option("device", "virtio-scsi-pci,id=scsi0");
+                option("drive", iso + ",if=none,id=cd0");
+                option("device", "scsi-cd,drive=cd0,bus=scsi0.0");
+            } else {
+                option("drive", iso);
+            }
         }
     }
 
@@ -131,11 +147,19 @@ ArgsFile build(const Options &o, const std::function<void(ArgsFile &)> &addFirmw
 
     section("Sound");
     option("audiodev", "pipewire,id=audio0");
-    option("device", "ich9-intel-hda");
-    option("device", "hda-duplex,audiodev=audio0");
+    if (arm) {
+        option("device", "virtio-sound-pci,audiodev=audio0");
+    } else {
+        option("device", "ich9-intel-hda");
+        option("device", "hda-duplex,audiodev=audio0");
+    }
 
     section("USB");
     option("device", "qemu-xhci");
+    if (arm) {
+        /* no PS/2 either */
+        option("device", "usb-kbd");
+    }
     option("device", "usb-tablet");
 
     section("Clipboard sharing, with spice-vdagent in the guest");
