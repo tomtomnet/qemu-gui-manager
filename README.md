@@ -127,7 +127,9 @@ with `-device virtio-vga-gl,blob=on,hostmem=4G,drm_native_context=on`
 Intel.
 
 A guest whose Mesa has no native context for the GPU falls back to virgl
-without a word, and most distributions leave it out (Arch has it for AMD).
+without a word, and most distributions leave it out (Arch has it for AMD,
+Intel i915 and Qualcomm). To build a guest Mesa with it, on Fedora, Debian,
+Ubuntu or Arch, see [Building Mesa with native context](docs/guest-mesa.md).
 With the qemu-gui build of QEMU, Details says whether the running guest
 really uses native context: QEMU counts the contexts the guest creates of
 each kind (`qom-get` of `x-drm-offered`, `x-drm-contexts` and
