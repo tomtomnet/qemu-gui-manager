@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "vmconfig.h"
 
+#include <QDir>
 #include <QRegularExpression>
 
 namespace VmConfig {
@@ -42,6 +43,37 @@ void setName(ArgsFile &args, const QString &name)
         v.setImplied(name);
     }
     args.setValueAt(i, v);
+}
+
+QString qemuBinary(const ArgsFile &args)
+{
+    const int i = args.indexOf("qemu", ArgsFile::Line::Directive);
+    QString path = i < 0 ? QString() : args.lines[i].value;
+
+    if (path.startsWith("~/")) {
+        path.replace(0, 1, QDir::homePath());
+    }
+    return path;
+}
+
+void setQemuBinary(ArgsFile &args, const QString &path)
+{
+    int i = args.indexOf("qemu", ArgsFile::Line::Directive);
+
+    if (path.isEmpty()) {
+        if (i >= 0) {
+            args.removeAt(i);
+        }
+        return;
+    }
+    if (i < 0) {
+        /* first, after the comments at the top */
+        for (i = 0; i < args.lines.size() &&
+                    args.lines[i].kind == ArgsFile::Line::Comment; i++) {
+        }
+        args.lines.insert(i, ArgsFile::Line{ArgsFile::Line::Directive, "qemu", {}, {}});
+    }
+    args.lines[i].value = path;
 }
 
 qint64 parseSize(const QString &text, qint64 unit)
