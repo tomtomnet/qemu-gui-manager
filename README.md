@@ -187,10 +187,15 @@ qcow2 files of the VM, as the snapshot button of the qemu-gui menu does:
 - They are not backups: they live in the same files as the VM, and go with
   them. They help before an update or an experiment, which a snapshot can
   undo.
-- Only qcow2 files can hold them. A snapshot of a running VM needs every
-  file it writes to in qcow2, UEFI variables included: new VMs get them in
-  qcow2 where the distribution's firmware comes so, as Fedora's
-  `OVMF_VARS_4M.qcow2` does. The tab says which file is in the way.
+- Only qcow2 files can hold them. A snapshot with the running state needs
+  every file the VM writes to in qcow2, UEFI variables included: new VMs
+  get them in qcow2 where the distribution's firmware comes so, as
+  Fedora's `OVMF_VARS_4M.qcow2` does.
+- QEMU cannot save the running state of a VM with 3D graphics (virgl, "not
+  yet migratable"), nor of one with a raw file it writes to. A snapshot of
+  such a running VM holds its qcow2 disks only, all at the same point (a
+  QMP transaction of `blockdev-snapshot-internal-sync`), as the qemu-gui
+  menu does, and the tab says so. The raw files are left out.
 
 ## PCI passthrough
 
