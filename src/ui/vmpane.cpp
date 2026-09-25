@@ -4,14 +4,17 @@
 #include <QAbstractButton>
 #include <QAbstractItemView>
 #include <QComboBox>
+#include <QFrame>
 #include <QHBoxLayout>
 #include <QLineEdit>
+#include <QListWidget>
 #include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QSignalBlocker>
 #include <QSpinBox>
+#include <QStackedWidget>
 #include <QTabWidget>
 #include <QTimer>
 #include <QVBoxLayout>
@@ -24,10 +27,10 @@
 #include "ui/vmdetails.h"
 
 /*
- * A page, in the scroll area of its tab.  The area takes the height for
- * the width of its widget as the least height it can have: the least
- * height the page needs, not the height it prefers, lets the page shrink
- * before its tab scrolls.
+ * A page, in its scroll area.  The area takes the height for the width of
+ * its widget as the least height it can have: the least height the page
+ * needs, not the height it prefers, lets the page shrink before it
+ * scrolls.
  */
 class PageHolder : public QWidget
 {
@@ -48,7 +51,7 @@ public:
 
 VmPane::VmPane(QWidget *parent)
     : QWidget(parent), m_check(new QTimer(this)), m_tabs(new QTabWidget),
-      m_details(new VmDetails), m_footer(new QWidget),
+      m_details(new VmDetails), m_list(new QListWidget), m_stack(new QStackedWidget),
       m_running(new Banner(Banner::Information)),
       /* no mnemonic: the pages use D */
       m_discard(new QPushButton(Icons::themed({"edit-undo"}, QStyle::SP_DialogResetButton),
@@ -58,33 +61,53 @@ VmPane::VmPane(QWidget *parent)
                               tr("&Apply")))
 {
     auto *layout = new QVBoxLayout(this);
-    auto *footer = new QHBoxLayout(m_footer);
+    auto *settings = new QWidget;
+    auto *settingsLayout = new QHBoxLayout(settings);
+    auto *line = new QFrame;
+    auto *page = new QWidget;
+    auto *pageLayout = new QVBoxLayout(page);
+    auto *footer = new QHBoxLayout;
 
-    /* the names cut short before the tabs scroll, in a narrow window */
+    /* no frame around the tabs: the pages have frames enough */
     m_tabs->setObjectName("vmTabs");
-    m_tabs->setElideMode(Qt::ElideRight);
-    m_tabs->setUsesScrollButtons(true);
+    m_tabs->setDocumentMode(true);
     m_tabs->addTab(m_details, tr("Details"));
+    m_tabs->addTab(settings, tr("Settings"));
+
+    /* the pages down the side, as the settings dialog had them, on the tab */
+    m_list->setObjectName("pages");
+    m_list->setIconSize(QSize(22, 22));
+    m_list->setSpacing(1);
+    m_list->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
+    m_list->setFrameShape(QFrame::NoFrame);
+    m_list->viewport()->setAutoFillBackground(false);
+    line->setFrameShape(QFrame::VLine);
+    line->setFrameShadow(QFrame::Sunken);
     m_running->setObjectName("running");
     m_running->setText(tr("The VM is running: the changes apply the next time it starts."));
     m_discard->setObjectName("discard");
     m_discard->setToolTip(tr("Go back to the settings as they were saved"));
     m_apply->setObjectName("apply");
-    footer->setContentsMargins(0, 0, 0, 0);
-    footer->addWidget(m_running, 1);
     footer->addStretch();
     footer->addWidget(m_discard);
     footer->addWidget(m_apply);
+    pageLayout->addWidget(m_running);
+    pageLayout->addWidget(m_stack, 1);
+    pageLayout->addLayout(footer);
+    settingsLayout->setContentsMargins(0, 0, 0, 0);
+    settingsLayout->setSpacing(0);
+    settingsLayout->addWidget(m_list);
+    settingsLayout->addWidget(line);
+    settingsLayout->addWidget(page, 1);
 
     layout->setContentsMargins(0, 0, 0, 0);
-    layout->addWidget(m_tabs, 1);
-    layout->addWidget(m_footer);
+    layout->addWidget(m_tabs);
 
     /* Apply is for when there is something to apply */
     m_check->setSingleShot(true);
     m_check->setInterval(0);
     connect(m_check, &QTimer::timeout, this, &VmPane::updateFooter);
-    connect(m_tabs, &QTabWidget::currentChanged, this, &VmPane::tabChanged);
+    connect(m_list, &QListWidget::currentRowChanged, this, &VmPane::switchTo);
     connect(m_apply, &QPushButton::clicked, this, &VmPane::apply);
     connect(m_discard, &QPushButton::clicked, this, &VmPane::discard);
     updateFooter();
@@ -92,8 +115,8 @@ VmPane::VmPane(QWidget *parent)
 
 VmPane::~VmPane()
 {
-    /* the tabs go after the members: no page to load then */
-    disconnect(m_tabs, nullptr, this, nullptr);
+    /* the list goes after the members: no page to load then */
+    disconnect(m_list, nullptr, this, nullptr);
 }
 
 Vm *VmPane::vm() const
@@ -120,21 +143,22 @@ void VmPane::setVm(Vm *vm)
     buildPages();
 }
 
-/* The pages of the VM, new, on the tab shown before */
+/* The pages of the VM, new, on the page shown before */
 void VmPane::buildPages()
 {
-    const int tab = m_tabs->currentIndex();
+    const Page page = m_page;
 
     m_pages.clear();
     m_current = -1;
     {
-        /* the tab shown in the end is loaded below, once */
-        const QSignalBlocker blocker(m_tabs);
+        /* the page shown in the end is loaded below, once */
+        const QSignalBlocker blocker(m_list);
 
+        m_list->clear();
         /* the scroll areas, with the pages */
-        while (m_tabs->count() > 1) {
-            QWidget *old = m_tabs->widget(1);
-            m_tabs->removeTab(1);
+        while (m_stack->count() > 0) {
+            QWidget *old = m_stack->widget(0);
+            m_stack->removeWidget(old);
             delete old;
         }
         if (m_vm) {
@@ -149,14 +173,20 @@ void VmPane::buildPages()
             scroll->setWidget(new PageHolder(page));
             scroll->setWidgetResizable(true);
             scroll->setFrameShape(QFrame::NoFrame);
-            m_tabs->addTab(scroll, page->title());
+            m_list->addItem(new QListWidgetItem(page->icon(), page->title()));
+            m_stack->addWidget(scroll);
             watchEdits(page);
         }
-        m_tabs->setCurrentIndex(qBound(0, tab, m_tabs->count() - 1));
+        if (!m_pages.isEmpty()) {
+            m_list->setFixedWidth(m_list->sizeHintForColumn(0) + 2 * m_list->frameWidth() + 16);
+        }
     }
     m_args = m_vm ? m_vm->args() : ArgsFile();
     m_loaded = m_args.toText();
-    tabChanged(m_tabs->currentIndex());
+    if (!m_pages.isEmpty()) {
+        m_list->setCurrentRow(qBound(0, int(page), int(m_pages.size()) - 1));
+    }
+    updateFooter();
 }
 
 VmPane::Tab VmPane::tab() const
@@ -166,22 +196,35 @@ VmPane::Tab VmPane::tab() const
 
 void VmPane::setTab(Tab tab)
 {
-    if (tab >= 0 && tab < m_tabs->count()) {
-        m_tabs->setCurrentIndex(tab);
+    m_tabs->setCurrentIndex(tab == Settings ? 1 : 0);
+}
+
+VmPane::Page VmPane::page() const
+{
+    return m_page;
+}
+
+void VmPane::setPage(Page page)
+{
+    m_page = Page(qBound(0, int(page), int(Arguments)));
+    if (m_page < m_list->count()) {
+        m_list->setCurrentRow(m_page);
     }
 }
 
-void VmPane::tabChanged(int index)
+void VmPane::switchTo(int row)
 {
+    if (row < 0 || row >= m_pages.size()) {
+        return;
+    }
     /* what the page left changed goes to the arguments, for the next page */
     if (m_current >= 0 && m_pages[m_current]->isModified()) {
         m_pages[m_current]->save(m_args);
     }
-    m_current = index >= 1 && index <= m_pages.size() ? index - 1 : -1;
-    if (m_current >= 0) {
-        m_pages[m_current]->load(m_args);
-        m_settingsTab = Tab(index);
-    }
+    m_current = row;
+    m_page = Page(row);
+    m_pages[row]->load(m_args);
+    m_stack->setCurrentIndex(row);
     updateFooter();
 }
 
@@ -211,8 +254,6 @@ void VmPane::updateFooter()
     m_apply->setEnabled(modified);
     m_discard->setEnabled(modified);
     m_running->setVisible(m_vm && m_vm->runner()->isActive());
-    /* on the Details tab, only while there are changes to apply */
-    m_footer->setVisible(m_current >= 0 || modified);
 }
 
 bool VmPane::confirmChanges(const QString &question)

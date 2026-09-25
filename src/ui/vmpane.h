@@ -8,7 +8,9 @@
 #include "core/argsfile.h"
 
 class Banner;
+class QListWidget;
 class QPushButton;
+class QStackedWidget;
 class QTabWidget;
 class QTimer;
 class SettingsPage;
@@ -16,18 +18,19 @@ class Vm;
 class VmDetails;
 
 /*
- * The VM selected in the list, beside it: its details, then its settings,
- * in tabs.  The settings pages all edit a copy of the VM's arguments, which
- * keeps their changes from tab to tab until Apply saves them.
+ * The VM selected in the list, beside it, in two tabs: its details, and its
+ * settings, with their pages listed down the side as in a dialog.  The
+ * pages all edit a copy of the VM's arguments, which keeps their changes
+ * from page to page until Apply saves them.
  */
 class VmPane : public QWidget
 {
     Q_OBJECT
 
 public:
-    enum Tab {
-        Details, General, System, Display, Storage, SharedFolders, PciDevices, UsbDevices,
-        Arguments,
+    enum Tab { Details, Settings };
+    enum Page {
+        General, System, Display, Storage, SharedFolders, PciDevices, UsbDevices, Arguments,
     };
 
     explicit VmPane(QWidget *parent = nullptr);
@@ -40,8 +43,9 @@ public:
 
     Tab tab() const;
     void setTab(Tab tab);
-    /* The settings tab shown last, for the Settings action */
-    Tab settingsTab() const { return m_settingsTab; }
+    /* The settings page shown, or to show once there is a VM */
+    Page page() const;
+    void setPage(Page page);
 
     /* Changes not applied yet */
     bool isModified() const;
@@ -56,7 +60,7 @@ public:
 
 private:
     void buildPages();
-    void tabChanged(int index);
+    void switchTo(int row);
     void vmChanged();
     void updateFooter();
     void watchEdits(SettingsPage *page);
@@ -67,11 +71,12 @@ private:
     QString m_loaded;
     QList<SettingsPage *> m_pages;
     int m_current = -1;
-    Tab m_settingsTab = General;
+    Page m_page = General;
     QTimer *m_check;
     QTabWidget *m_tabs;
     VmDetails *m_details;
-    QWidget *m_footer;
+    QListWidget *m_list;
+    QStackedWidget *m_stack;
     Banner *m_running;
     QPushButton *m_discard;
     QPushButton *m_apply;

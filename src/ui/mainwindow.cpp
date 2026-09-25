@@ -184,6 +184,8 @@ MainWindow::MainWindow(VmStore *store, QWidget *parent)
     m_list->setItemDelegate(new VmItemDelegate(m_list));
     m_list->setContextMenuPolicy(Qt::CustomContextMenu);
     m_list->setMinimumWidth(200);
+    /* the list is the side of the window, as the pages are the side of the settings */
+    m_list->setFrameShape(QFrame::NoFrame);
 
     welcomeText->setAlignment(Qt::AlignCenter);
     create->setText(m_new->text().remove('&'));
@@ -235,7 +237,7 @@ MainWindow::MainWindow(VmStore *store, QWidget *parent)
         addVm(vm);
     }
     if (!restoreGeometry(settings.value("mainwindow/geometry").toByteArray())) {
-        /* the tabs in full */
+        /* room for the settings pages beside their list */
         resize(1060, 660);
     }
     restoreState(settings.value("mainwindow/state").toByteArray());
@@ -245,7 +247,9 @@ MainWindow::MainWindow(VmStore *store, QWidget *parent)
         m_list->setCurrentRow(0);
     }
     currentChanged();
-    m_pane->setTab(VmPane::Tab(settings.value("mainwindow/tab").toInt()));
+    m_pane->setPage(VmPane::Page(settings.value("settings/page").toInt()));
+    m_pane->setTab(settings.value("mainwindow/tab").toInt() > 0 ? VmPane::Settings
+                                                                : VmPane::Details);
     updateStatus();
 }
 
@@ -671,7 +675,10 @@ void MainWindow::openSettings(Vm *vm, int page)
         return;
     }
     select(vm->id());
-    m_pane->setTab(page >= 0 ? VmPane::Tab(page) : m_pane->settingsTab());
+    if (page >= 0) {
+        m_pane->setPage(VmPane::Page(page));
+    }
+    m_pane->setTab(VmPane::Settings);
 }
 
 void MainWindow::start()
@@ -837,5 +844,6 @@ void MainWindow::closeEvent(QCloseEvent *event)
     settings.setValue("mainwindow/splitter", m_splitter->saveState());
     settings.setValue("mainwindow/current", vm ? vm->id() : QString());
     settings.setValue("mainwindow/tab", int(m_pane->tab()));
+    settings.setValue("settings/page", int(m_pane->page()));
     QMainWindow::closeEvent(event);
 }

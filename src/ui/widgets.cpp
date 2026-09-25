@@ -13,6 +13,7 @@
 #include <QRegularExpression>
 #include <QSlider>
 #include <QSpinBox>
+#include <QSplitter>
 #include <QStyle>
 
 Form::Form()
@@ -66,7 +67,52 @@ void Form::addRow(QWidget *label, QLayout *field)
     addLayout(field, row, 1);
 }
 
+namespace {
+
+class GapHandle : public QSplitterHandle
+{
+public:
+    using QSplitterHandle::QSplitterHandle;
+
+protected:
+    void paintEvent(QPaintEvent *) override {}
+};
+
+}
+
+Splitter::Splitter(Qt::Orientation orientation, QWidget *parent) : QSplitter(orientation, parent)
+{
+    const int spacing = style()->pixelMetric(orientation == Qt::Horizontal
+                                                 ? QStyle::PM_LayoutHorizontalSpacing
+                                                 : QStyle::PM_LayoutVerticalSpacing);
+
+    setHandleWidth(spacing > 0 ? spacing : 6);
+}
+
+QSplitterHandle *Splitter::createHandle()
+{
+    return new GapHandle(orientation(), this);
+}
+
+void Form::addSection(const QString &title)
+{
+    addWidget(Widgets::heading(title), rowCount(), 0, 1, 2);
+}
+
 namespace Widgets {
+
+QLabel *heading(const QString &text)
+{
+    auto *label = new QLabel(text);
+    QFont font = label->font();
+
+    font.setBold(true);
+    font.setPointSizeF(font.pointSizeF() * 1.1);
+    label->setFont(font);
+    /* apart from what is above, not from what it names */
+    label->setContentsMargins(0, QFontMetrics(font).height() / 2, 0, 0);
+    return label;
+}
 
 bool confirm(QWidget *parent, QMessageBox::Icon icon, const QString &title,
              const QString &text, const QString &action)

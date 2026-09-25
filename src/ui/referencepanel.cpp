@@ -23,6 +23,7 @@
 #include "ui/argseditor.h"
 #include "ui/icons.h"
 #include "ui/qemudocs.h"
+#include "ui/widgets.h"
 
 enum { KindRole = Qt::UserRole, NameRole };
 
@@ -45,7 +46,7 @@ ReferencePanel::ReferencePanel(QWidget *parent)
       m_timer(new QTimer(this))
 {
     auto *layout = new QVBoxLayout(this);
-    auto *splitter = new QSplitter(Qt::Vertical);
+    auto *splitter = new Splitter(Qt::Vertical);
     auto *buttons = new QHBoxLayout;
 
     layout->setContentsMargins(0, 0, 0, 0);

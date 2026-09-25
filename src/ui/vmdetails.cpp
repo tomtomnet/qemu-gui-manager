@@ -79,8 +79,12 @@ VmDetails::VmDetails(QWidget *parent)
     m_name->setFont(font);
     m_name->setTextInteractionFlags(Qt::TextSelectableByMouse);
     m_icon->setPixmap(Icons::themed({"computer"}, QStyle::SP_ComputerIcon).pixmap(48, 48));
+    /* the name and the state together, beside the middle of the icon */
+    titles->setSpacing(0);
+    titles->addStretch();
     titles->addWidget(m_name);
     titles->addWidget(m_state);
+    titles->addStretch();
     header->addWidget(m_icon);
     header->addLayout(titles, 1);
 
@@ -98,7 +102,10 @@ VmDetails::VmDetails(QWidget *parent)
             QDesktopServices::openUrl(url);
         }
     });
+    /* on the page, not in a box of its own, and in line with the icon */
     m_text->setFrameShape(QFrame::NoFrame);
+    m_text->viewport()->setAutoFillBackground(false);
+    m_text->document()->setDocumentMargin(0);
 
     layout->addLayout(header);
     layout->addWidget(m_note);

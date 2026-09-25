@@ -9,7 +9,6 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFontDatabase>
-#include <QGroupBox>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QInputDialog>
@@ -62,6 +61,11 @@ GeneralPage::GeneralPage(Vm *vm, QWidget *parent) : SettingsPage(parent), m_name
                                     "VM creates and its log.")));
     layout->addLayout(form);
     layout->addStretch();
+}
+
+QIcon GeneralPage::icon() const
+{
+    return Icons::themed({"preferences-system", "configure"}, QStyle::SP_ComputerIcon);
 }
 
 void GeneralPage::load(const ArgsFile &args)
@@ -132,8 +136,6 @@ SystemPage::SystemPage(QWidget *parent)
         spin->setEnabled(false);
         connect(spin, &QSpinBox::valueChanged, this, &SystemPage::updateTopology);
     }
-    topologyRow->addWidget(m_topology);
-    topologyRow->addSpacing(12);
     topologyRow->addWidget(new QLabel(tr("Sockets:")));
     topologyRow->addWidget(m_sockets);
     topologyRow->addWidget(new QLabel(tr("Cores:")));
@@ -171,6 +173,7 @@ SystemPage::SystemPage(QWidget *parent)
     form->addRow(QString(), Widgets::hint(tr("This computer has %1 GiB.")
                                      .arg(QString::number(hostMiB / 1024.0, 'f', 1))));
     form->addRow(Widgets::label(tr("&Processors:"), m_cpus), cpuRow);
+    form->addRow(QString(), m_topology);
     form->addRow(QString(), topologyRow);
     form->addRow(tr("Processor mode&l:"), m_model);
     form->addRow(QString(), m_modelInfo);
@@ -194,11 +197,8 @@ SystemPage::SystemPage(QWidget *parent)
     qemu->addLayout(ownRow);
     form->addRow(Widgets::label(tr("&QEMU:"), m_defaultQemu), qemu);
     form->addRow(QString(), m_qemuInfo);
-    layout->addLayout(form);
 
     /* boot */
-    auto *boot = new QGroupBox(tr("Boot"));
-    auto *bootForm = Widgets::form();
     m_firmware->setObjectName("firmware");
     m_bootDevice->setObjectName("bootDevice");
     m_bootMenu->setObjectName("bootMenu");
@@ -209,12 +209,12 @@ SystemPage::SystemPage(QWidget *parent)
     m_bootDevice->addItem(tr("The network (PXE)"), int(VmConfig::BootDevice::Network));
     m_bootDevice->setToolTip(tr("Sets bootindex=1 on its device, which both SeaBIOS and "
                                 "UEFI follow"));
-    bootForm->addRow(tr("F&irmware:"), m_firmware);
-    bootForm->addRow(QString(), m_firmwareInfo);
-    bootForm->addRow(tr("&Start from:"), m_bootDevice);
-    bootForm->addRow(QString(), m_bootMenu);
-    boot->setLayout(bootForm);
-    layout->addWidget(boot);
+    form->addSection(tr("Boot"));
+    form->addRow(tr("F&irmware:"), m_firmware);
+    form->addRow(QString(), m_firmwareInfo);
+    form->addRow(tr("&Start from:"), m_bootDevice);
+    form->addRow(QString(), m_bootMenu);
+    layout->addLayout(form);
     layout->addStretch();
     connect(m_firmware, &QComboBox::currentIndexChanged, this, &SystemPage::describeFirmware);
 
@@ -245,6 +245,11 @@ void SystemPage::updateQemu()
         connect(docs, &QemuDocs::changed, this, &SystemPage::fillLists);
     }
     fillLists();
+}
+
+QIcon SystemPage::icon() const
+{
+    return Icons::themed({"cpu", "computer"}, QStyle::SP_ComputerIcon);
 }
 
 void SystemPage::fillLists()
@@ -620,10 +625,6 @@ DisplayPage::DisplayPage(QWidget *parent)
 {
     auto *layout = new QVBoxLayout(this);
     auto *form = Widgets::form();
-    auto *features = new QGroupBox(tr("3D acceleration"));
-    auto *featuresLayout = new QVBoxLayout(features);
-    auto *hostmemRow = new QHBoxLayout;
-    auto *hostmemLabel = Widgets::label(tr("GPU m&emory window:"), m_hostmem);
 
     m_kind->setObjectName("graphics");
     m_device->setObjectName("gpuDevice");
@@ -641,27 +642,24 @@ DisplayPage::DisplayPage(QWidget *parent)
                                              "its driver starts.")));
     form->addRow(tr("&Window:"), m_window);
 
-    hostmemRow->addWidget(hostmemLabel);
-    hostmemRow->addWidget(m_hostmem);
-    hostmemRow->addStretch();
-    featuresLayout->addWidget(m_nativeContext);
-    featuresLayout->addWidget(Widgets::hint(
+    form->addSection(tr("3D acceleration"));
+    form->addRow(QString(), m_nativeContext);
+    form->addRow(QString(), Widgets::hint(
         tr("Much faster than virgl. It needs a virglrenderer built with native context for "
            "the GPU of this computer, whose renderer depends on the GPU: Intel (Xe or i915), "
            "AMD, Qualcomm, Apple (Asahi) or Arm Mali. File > Build QEMU builds one. The guest "
            "needs native context support in Mesa too. With KVM, the accelerator gets "
            "honor-guest-pat=on, which Intel GPUs need.")));
-    featuresLayout->addWidget(m_venus);
-    featuresLayout->addWidget(Widgets::hint(
+    form->addRow(QString(), m_venus);
+    form->addRow(QString(), Widgets::hint(
         tr("Vulkan in the guest through the Vulkan driver of this computer; it needs a "
            "virglrenderer built with Venus.")));
-    featuresLayout->addLayout(hostmemRow);
-    featuresLayout->addWidget(Widgets::hint(
+    form->addRow(tr("GPU m&emory window:"), m_hostmem);
+    form->addRow(QString(), Widgets::hint(
         tr("The host memory the guest maps its GPU buffers into (hostmem, with blob=on).")));
 
     layout->addWidget(m_custom);
     layout->addLayout(form);
-    layout->addWidget(features);
     layout->addStretch();
 
     connect(m_kind, &QComboBox::currentIndexChanged, this, [this]() {
@@ -670,6 +668,12 @@ DisplayPage::DisplayPage(QWidget *parent)
     });
     connect(m_nativeContext, &QCheckBox::toggled, this, &DisplayPage::update);
     connect(m_venus, &QCheckBox::toggled, this, &DisplayPage::update);
+}
+
+QIcon DisplayPage::icon() const
+{
+    return Icons::themed({"video-display", "preferences-desktop-display"},
+                         QStyle::SP_DesktopIcon);
 }
 
 /* The cards of @kind, VGA first but on ARM's virt */
@@ -807,7 +811,8 @@ StoragePage::StoragePage(const QString &vmDir, QWidget *parent)
       m_resize(new QPushButton(tr("Si&ze…"))), m_remove(new QPushButton(tr("&Remove")))
 {
     auto *layout = new QVBoxLayout(this);
-    auto *buttons = new QHBoxLayout;
+    auto *tableRow = new QHBoxLayout;
+    auto *buttons = new QVBoxLayout;
     auto *addDisk = new QPushButton(tr("Add Hard Dis&k…"));
     auto *addCdrom = new QPushButton(tr("Add &CD/DVD Drive"));
 
@@ -826,19 +831,22 @@ StoragePage::StoragePage(const QString &vmDir, QWidget *parent)
     addDisk->setIcon(Icons::themed({"drive-harddisk", "list-add"}, QStyle::SP_DriveHDIcon));
     addCdrom->setIcon(Icons::themed({"drive-optical", "list-add"}, QStyle::SP_DriveCDIcon));
     m_remove->setIcon(Icons::themed({"list-remove", "edit-delete"}, QStyle::SP_TrashIcon));
+    /* beside the table, as a row under it would not fit a narrow window */
     buttons->addWidget(addDisk);
     buttons->addWidget(addCdrom);
+    buttons->addSpacing(buttons->spacing() * 2);
     buttons->addWidget(m_disc);
     buttons->addWidget(m_eject);
     buttons->addWidget(m_resize);
     buttons->addWidget(m_remove);
     buttons->addStretch();
+    tableRow->addWidget(m_table, 1);
+    tableRow->addLayout(buttons);
 
     layout->addWidget(Widgets::note(tr("The disks and CD/DVD drives of the VM. New disks are "
                                        "created in the VM folder when you apply; removing a "
                                        "disk takes it out of the VM, but its file stays.")));
-    layout->addWidget(m_table, 1);
-    layout->addLayout(buttons);
+    layout->addLayout(tableRow, 1);
 
     connect(addDisk, &QPushButton::clicked, this, &StoragePage::addDisk);
     connect(addCdrom, &QPushButton::clicked, this, &StoragePage::addCdrom);
@@ -870,6 +878,11 @@ StoragePage::StoragePage(const QString &vmDir, QWidget *parent)
             resize();
         }
     });
+}
+
+QIcon StoragePage::icon() const
+{
+    return Icons::themed({"drive-harddisk"}, QStyle::SP_DriveHDIcon);
 }
 
 void StoragePage::load(const ArgsFile &args)
@@ -1199,10 +1212,9 @@ SharesPage::SharesPage(QWidget *parent)
       m_mount(new QLabel)
 {
     auto *layout = new QVBoxLayout(this);
-    auto *buttons = new QHBoxLayout;
+    auto *tableRow = new QHBoxLayout;
+    auto *buttons = new QVBoxLayout;
     auto *add = new QPushButton(tr("&Add…"));
-    auto *guest = new QGroupBox(tr("In the guest"));
-    auto *guestLayout = new QVBoxLayout(guest);
 
     m_table->setObjectName("shares");
     m_table->setHorizontalHeaderLabels(
@@ -1224,20 +1236,21 @@ SharesPage::SharesPage(QWidget *parent)
     buttons->addWidget(m_edit);
     buttons->addWidget(m_remove);
     buttons->addStretch();
+    tableRow->addWidget(m_table, 1);
+    tableRow->addLayout(buttons);
 
     m_mount->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
     m_mount->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    guestLayout->addWidget(m_mount);
-    guestLayout->addWidget(Widgets::hint(tr("Windows guests need the virtio-win drivers and WinFsp.")));
 
     layout->addWidget(m_virtiofsd);
     layout->addWidget(m_memory);
     layout->addWidget(Widgets::note(tr("Folders of this computer the VM can use. They are shared "
                               "with virtiofs, which is fast and works with Linux 5.4 or "
                               "later in the guest.")));
-    layout->addWidget(m_table, 1);
-    layout->addLayout(buttons);
-    layout->addWidget(guest);
+    layout->addLayout(tableRow, 1);
+    layout->addWidget(Widgets::heading(tr("In the guest")));
+    layout->addWidget(m_mount);
+    layout->addWidget(Widgets::hint(tr("Windows guests need the virtio-win drivers and WinFsp.")));
 
     m_virtiofsd->setText(tr("virtiofsd was not found, so shared folders will not work. "
                             "Install it with <code>sudo dnf install virtiofsd</code>, or "
@@ -1259,6 +1272,11 @@ SharesPage::SharesPage(QWidget *parent)
         }
     });
     connect(m_table, &QTableWidget::currentCellChanged, this, &SharesPage::updateHints);
+}
+
+QIcon SharesPage::icon() const
+{
+    return Icons::themed({"folder-network", "folder-remote"}, QStyle::SP_DirIcon);
 }
 
 void SharesPage::load(const ArgsFile &args)
@@ -1566,6 +1584,12 @@ PciPage::PciPage(QWidget *parent)
     });
 }
 
+QIcon PciPage::icon() const
+{
+    return Icons::themed({"preferences-desktop-peripherals", "video-display"},
+                         QStyle::SP_DriveHDIcon);
+}
+
 void PciPage::load(const ArgsFile &args)
 {
     const QList<PciDevice> devices = HostDevices::pciDevices();
@@ -1701,6 +1725,12 @@ UsbPage::UsbPage(QWidget *parent)
     layout->addWidget(m_tree, 1);
 }
 
+QIcon UsbPage::icon() const
+{
+    return Icons::themed({"drive-removable-media-usb", "media-removable"},
+                         QStyle::SP_DriveFDIcon);
+}
+
 void UsbPage::load(const ArgsFile &args)
 {
     const QList<UsbDevice> devices = HostDevices::usbDevices();
@@ -1814,7 +1844,7 @@ ArgumentsPage::ArgumentsPage(const QString &vmDir, QWidget *parent)
 {
     m_pane->setVmDir(vmDir);
     auto *layout = new QVBoxLayout(this);
-    auto *splitter = new QSplitter(Qt::Horizontal);
+    auto *splitter = new Splitter(Qt::Horizontal);
     auto *reference = new ReferencePanel;
 
     m_pane->setObjectName("argsPane");
@@ -1831,6 +1861,11 @@ ArgumentsPage::ArgumentsPage(const QString &vmDir, QWidget *parent)
                               "starting with # are comments. The other pages edit these "
                               "same lines. Ctrl+Space completes option and device names.")));
     layout->addWidget(splitter, 1);
+}
+
+QIcon ArgumentsPage::icon() const
+{
+    return Icons::themed({"utilities-terminal", "text-x-script"}, QStyle::SP_FileIcon);
 }
 
 void ArgumentsPage::load(const ArgsFile &args)

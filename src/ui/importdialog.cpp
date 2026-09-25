@@ -22,6 +22,7 @@
 #include "core/vmconfig.h"
 #include "core/vmstore.h"
 #include "ui/banner.h"
+#include "ui/widgets.h"
 
 ImportDialog::ImportDialog(VmStore *store, const QemuInfo *info, QWidget *parent)
     : QDialog(parent), m_store(store), m_info(info)
@@ -30,7 +31,7 @@ ImportDialog::ImportDialog(VmStore *store, const QemuInfo *info, QWidget *parent
     auto *form = new QFormLayout;
     auto *fileRow = new QHBoxLayout;
     auto *open = new QPushButton(tr("Open Script…"));
-    auto *splitter = new QSplitter(Qt::Vertical);
+    auto *splitter = new Splitter(Qt::Vertical);
     const QFont fixed = QFontDatabase::systemFont(QFontDatabase::FixedFont);
 
     setWindowTitle(tr("Import a VM"));

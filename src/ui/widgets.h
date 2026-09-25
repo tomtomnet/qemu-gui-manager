@@ -3,6 +3,7 @@
 
 #include <QGridLayout>
 #include <QMessageBox>
+#include <QSplitter>
 #include <QString>
 
 class QLabel;
@@ -26,9 +27,24 @@ public:
     void addRow(QWidget *label, QWidget *field);
     void addRow(const QString &label, QLayout *field);
     void addRow(QWidget *label, QLayout *field);
+    /* A title over the rows that follow, where a group box would frame them */
+    void addSection(const QString &title);
 
 private:
     void addLabel(QWidget *label, Qt::Alignment vertical);
+};
+
+/*
+ * Panes as far apart as the widgets of a layout, the gap between them
+ * being the handle: no bar drawn, which Breeze would fill the gap with
+ */
+class Splitter : public QSplitter
+{
+public:
+    explicit Splitter(Qt::Orientation orientation, QWidget *parent = nullptr);
+
+protected:
+    QSplitterHandle *createHandle() override;
 };
 
 /* What the dialogs and pages are made of */
@@ -39,6 +55,8 @@ bool confirm(QWidget *parent, QMessageBox::Icon icon, const QString &title,
              const QString &text, const QString &action);
 
 Form *form();
+/* The title of a part of a page, flat: no frame around the part */
+QLabel *heading(const QString &text);
 /* A form label whose mnemonic focuses @buddy, for fields that are layouts */
 QLabel *label(const QString &text, QWidget *buddy);
 /* Wrapped, selectable text with links */
