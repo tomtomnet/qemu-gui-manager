@@ -503,6 +503,10 @@ private slots:
             QVERIFY(undocumented.size() < info.options.size() / 10);
         }
 
+        /* all of them at once, for the search */
+        QVERIFY(info.properties.size() > 100);
+        QVERIFY(info.properties.contains("virtio-net-pci"));
+
         QSignalSpy props(&loader, &QemuInfoLoader::propertiesLoaded);
         loader.loadProperties("virtio-net-pci");
         if (props.isEmpty()) {

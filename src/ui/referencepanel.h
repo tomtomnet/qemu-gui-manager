@@ -33,7 +33,10 @@ public:
     void setSearchText(const QString &text);
 
 private:
-    enum Kind { Option, Device, Machine, Cpu, Object, Netdev, Chardev, Audiodev, Display, Accel };
+    enum Kind {
+        Option, Device, Machine, Cpu, Object, Netdev, Chardev, Audiodev, Display, Accel,
+        Property,
+    };
 
     void refresh();
     void showCurrent();

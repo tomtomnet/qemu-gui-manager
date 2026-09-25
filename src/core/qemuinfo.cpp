@@ -3,6 +3,7 @@
 
 #include <QCryptographicHash>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
 #include <QFutureWatcher>
@@ -637,8 +638,82 @@ QString QemuInfoLoader::run(const QStringList &args, QString *error) const
     return QString::fromUtf8(p.readAll());
 }
 
+/*
+ * The properties of all @devices at once, from one QEMU asked over QMP on
+ * stdio: running it with -device X,help for each would take seconds
+ */
+static QHash<QString, QList<QemuPropertyDoc>> deviceProperties(
+    const QString &binary, const QList<QemuDeviceDoc> &devices)
+{
+    QHash<QString, QList<QemuPropertyDoc>> out;
+    QByteArray input = "{\"execute\":\"qmp_capabilities\"}\n";
+    QByteArray output;
+    QElapsedTimer clock;
+    QProcess p;
+
+    for (qsizetype i = 0; i < devices.size(); i++) {
+        const QJsonObject command{{"execute", "device-list-properties"},
+                                  {"arguments", QJsonObject{{"typename", devices[i].name}}},
+                                  {"id", int(i)}};
+        input += QJsonDocument(command).toJson(QJsonDocument::Compact) + '\n';
+    }
+    input += "{\"execute\":\"quit\"}\n";
+
+    p.start(binary, {"-machine", "none", "-nodefaults", "-display", "none", "-qmp", "stdio"});
+    if (!p.waitForStarted(5000)) {
+        return out;
+    }
+    p.write(input);
+    clock.start();
+    while (p.state() != QProcess::NotRunning && clock.elapsed() < 30000) {
+        p.waitForReadyRead(1000);
+        output += p.readAllStandardOutput();
+    }
+    if (p.state() != QProcess::NotRunning) {
+        p.kill();
+        p.waitForFinished(1000);
+    }
+    output += p.readAllStandardOutput();
+
+    for (const QByteArray &line : output.split('\n')) {
+        const QJsonObject reply = QJsonDocument::fromJson(line).object();
+        const int i = reply["id"].toInt(-1);
+        QList<QemuPropertyDoc> props;
+
+        if (i < 0 || i >= devices.size() || !reply["return"].isArray()) {
+            continue;
+        }
+        for (const QJsonValue &v : reply["return"].toArray()) {
+            const QJsonValue def = v["default-value"];
+            QemuPropertyDoc prop;
+
+            prop.name = v["name"].toString();
+            prop.type = v["type"].toString();
+            prop.desc = v["description"].toString();
+            /* as -device X,help shows them */
+            if (prop.type == "bool" && prop.desc == "on/off") {
+                prop.desc.clear();
+            }
+            if (def.isBool()) {
+                prop.defaultValue = def.toBool() ? "on" : "off";
+            } else if (def.isDouble()) {
+                prop.defaultValue = QString::number(def.toDouble(), 'g', 17);
+            } else if (def.isString()) {
+                prop.defaultValue = def.toString();
+            }
+            props << prop;
+        }
+        std::sort(props.begin(), props.end(),
+                  [](const QemuPropertyDoc &a, const QemuPropertyDoc &b) {
+                      return a.name < b.name;
+                  });
+        out[devices[i].name] = props;
+    }
+    return out;
+}
+
 /* Bump when the parsers change what they produce */
-static const int kCacheFormat = 1;
+static const int kCacheFormat = 2;
 
 QString QemuInfoLoader::cachePath() const
 {
@@ -812,6 +887,7 @@ void QemuInfoLoader::load()
             }
         }
         info.devices = QemuInfo::parseDeviceHelp(run({"-device", "help"}));
+        info.properties = deviceProperties(m_binary, info.devices);
         info.machines = QemuInfo::parseListHelp(run({"-machine", "help"}));
         info.cpus = QemuInfo::parseListHelp(run({"-cpu", "help"}));
         info.objects = QemuInfo::parseListHelp(run({"-object", "help"}));

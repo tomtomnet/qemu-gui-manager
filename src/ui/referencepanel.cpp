@@ -24,6 +24,19 @@
 
 enum { KindRole = Qt::UserRole, NameRole };
 
+/* Lowercase, with _ and - as spaces: "drm native" finds drm_native_context */
+static QString searchable(const QString &text)
+{
+    QString s = text.toLower();
+    return s.replace('_', ' ').replace('-', ' ');
+}
+
+/* "virtio-vga-gl,drm_native_context": the device and the property */
+static std::pair<QString, QString> splitProperty(const QString &name)
+{
+    return {name.section(',', 0, 0), name.section(',', 1)};
+}
+
 ReferencePanel::ReferencePanel(QWidget *parent)
     : QWidget(parent), m_search(new QLineEdit), m_status(new QLabel),
       m_results(new QTreeWidget), m_doc(new QTextBrowser), m_use(new QPushButton),
@@ -35,7 +48,7 @@ ReferencePanel::ReferencePanel(QWidget *parent)
 
     layout->setContentsMargins(0, 0, 0, 0);
     m_search->setObjectName("search");
-    m_search->setPlaceholderText(tr("Search options, devices, machines…"));
+    m_search->setPlaceholderText(tr("Search options, devices and their properties, machines…"));
     m_search->setClearButtonEnabled(true);
     m_status->setWordWrap(true);
     m_status->setTextInteractionFlags(Qt::TextSelectableByMouse);
@@ -142,6 +155,7 @@ void ReferencePanel::refresh()
         QString name;
         QString desc;
         QString text;       // everything else to search
+        QString label = {}; // if not the name
     };
     static const char *const groups[] = {
         QT_TR_NOOP("Options"),         QT_TR_NOOP("Devices"),
@@ -149,9 +163,13 @@ void ReferencePanel::refresh()
         QT_TR_NOOP("Objects"),         QT_TR_NOOP("Network backends"),
         QT_TR_NOOP("Character devices"), QT_TR_NOOP("Audio backends"),
         QT_TR_NOOP("Displays"),        QT_TR_NOOP("Accelerators"),
+        QT_TR_NOOP("Device properties"),
     };
+    /* past that, a search for properties is too vague */
+    const int maxProperties = 300;
     const QemuInfo *info = m_docs->info();
-    const QStringList words = m_search->text().toLower().split(' ', Qt::SkipEmptyParts);
+    const QStringList words = searchable(m_search->text()).split(' ', Qt::SkipEmptyParts);
+    const QString query = words.join(' ');
     const QString currentName =
         m_results->currentItem() ? m_results->currentItem()->data(0, NameRole).toString()
                                  : QString();
@@ -184,15 +202,30 @@ void ReferencePanel::refresh()
     };
     for (const auto &[kind, list] : lists) {
         for (const QemuNamedDoc &n : *list) {
-            entries << Entry{kind, n.name, n.desc, {}};
+            entries << Entry{kind, n.name, n.desc, {}, {}};
+        }
+    }
+    /* thousands of them: only when searching */
+    if (!words.isEmpty()) {
+        for (const QemuDeviceDoc &d : info->devices) {
+            for (const QemuPropertyDoc &p : info->properties.value(d.name)) {
+                QString desc = d.name + " · " + p.type;
+                if (!p.defaultValue.isEmpty()) {
+                    desc += ' ' + tr("(default %1)").arg(p.defaultValue);
+                }
+                if (!p.desc.isEmpty()) {
+                    desc += " · " + p.desc;
+                }
+                entries << Entry{Property, d.name + ',' + p.name, desc, {}, p.name};
+            }
         }
     }
 
-    QList<std::pair<int, const Entry *>> hits[Accel + 1];
+    QList<std::pair<int, const Entry *>> hits[Property + 1];
     for (const Entry &e : entries) {
-        const QString name = e.name.toLower();
-        const QString text = (e.desc + ' ' + e.text).toLower();
-        int score = 0;
+        const QString name = searchable(e.label.isEmpty() ? e.name : e.label);
+        const QString text = searchable(e.desc + ' ' + e.text);
+        int score = 0, nameHits = 0;
         bool all = true;
 
         for (const QString &w : words) {
@@ -204,17 +237,23 @@ void ReferencePanel::refresh()
                 score += 20;
             } else if (text.contains(w)) {
                 score += 1;
+                continue;
             } else {
                 all = false;
                 break;
             }
+            nameHits++;
         }
-        if (all) {
+        if (!words.isEmpty() && name == query) {
+            score += 200;
+        }
+        /* a property is found by its name, not by its device's */
+        if (all && (e.kind != Property || nameHits > 0)) {
             hits[e.kind] << std::pair(score, &e);
         }
     }
 
-    for (int kind = Option; kind <= Accel; kind++) {
+    for (int kind = Option; kind <= Property; kind++) {
         auto &list = hits[kind];
         if (list.isEmpty()) {
             continue;
@@ -228,6 +267,9 @@ void ReferencePanel::refresh()
 
         auto *group = new QTreeWidgetItem(
             m_results, {QString("%1 (%2)").arg(tr(groups[kind])).arg(list.size())});
+        if (list.size() > maxProperties) {
+            list.resize(maxProperties);
+        }
         QFont bold = group->font(0);
         bold.setBold(true);
         group->setFont(0, bold);
@@ -237,7 +279,8 @@ void ReferencePanel::refresh()
 
         for (const auto &[score, e] : list) {
             auto *item = new QTreeWidgetItem(
-                group, {kind == Option ? '-' + e->name : e->name, e->desc});
+                group, {kind == Option ? '-' + e->name : e->label.isEmpty() ? e->name : e->label,
+                        e->desc});
             item->setData(0, KindRole, kind);
             item->setData(0, NameRole, e->name);
             item->setToolTip(1, e->desc);
@@ -283,7 +326,30 @@ void ReferencePanel::showCurrent()
             .arg(key.toHtmlEscaped(), value.toHtmlEscaped());
     };
 
-    if (kind == Option) {
+    if (kind == Property) {
+        const auto [device, property] = splitProperty(name);
+        const QemuDeviceDoc *d = info->device(device);
+
+        for (const QemuPropertyDoc &p : info->properties.value(device)) {
+            if (p.name != property) {
+                continue;
+            }
+            html = QString("<h2>%1</h2>").arg(p.name.toHtmlEscaped());
+            html += tr("<p>A property of the <b>%1</b> device%2.</p>")
+                        .arg(device.toHtmlEscaped(),
+                             d && !d->desc.isEmpty() ? ": " + d->desc.toHtmlEscaped()
+                                                     : QString());
+            html += "<table>" + row(tr("Type"), p.type);
+            if (!p.defaultValue.isEmpty()) {
+                html += row(tr("Default"), p.defaultValue);
+            }
+            if (!p.desc.isEmpty()) {
+                html += row(tr("Description"), p.desc);
+            }
+            html += "</table>";
+            html += tr("<p>Use it with:</p>") + "<pre>" + lineFor(item).toHtmlEscaped() + "</pre>";
+        }
+    } else if (kind == Option) {
         const QemuOptionDoc *o = info->option(name);
         if (!o) {
             return;
@@ -411,6 +477,17 @@ QString ReferencePanel::lineFor(const QTreeWidgetItem *item) const
         return "-audiodev " + name + ",id=";
     case Display:
         return "-display " + name;
+    case Property: {
+        const auto [device, property] = splitProperty(name);
+        QString value;
+        for (const QemuPropertyDoc &p : info ? info->properties.value(device)
+                                             : QList<QemuPropertyDoc>()) {
+            if (p.name == property && p.type == "bool") {
+                value = "on";
+            }
+        }
+        return "-device " + device + ',' + property + '=' + value;
+    }
     default:
         return "-accel " + name;
     }
