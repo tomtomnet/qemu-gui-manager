@@ -183,6 +183,44 @@ struct VmSnapshots::Private
         emit q->finished(VmSnapshots::explain(error));
     }
 
+    /*
+     * The qcow2 disks of the running VM, not its state, all at the same point:
+     * what the menu of qemu-gui does when QEMU cannot save the state
+     */
+    void takeDisks(const QString &name, const QString &savevmError)
+    {
+        const QPointer<VmSnapshots> self(q);
+
+        runner->qmp()->execute("query-block", {}, [=, this](const QJsonValue &result,
+                                                           const QString &error) {
+            if (!self) {
+                return;
+            }
+            const QJsonArray actions = VmSnapshots::diskActions(result.toArray(), name);
+            if (!error.isEmpty() || actions.isEmpty() || !live()) {
+                end(error.isEmpty() ? savevmError : error);
+                return;
+            }
+            /* one of that name goes, as savevm would replace it */
+            hmp("delvm " + VmSnapshots::hmpQuote(name), [=, this](const QString &) {
+                if (!live()) {
+                    end(savevmError);
+                    return;
+                }
+                runner->qmp()->execute("transaction", {{"actions", actions}},
+                                       [=, this](const QJsonValue &, const QString &error) {
+                    if (!self) {
+                        return;
+                    }
+                    if (error.isEmpty()) {
+                        emit q->notice(VmSnapshots::disksOnlyReason(savevmError));
+                    }
+                    end(error);
+                });
+            });
+        });
+    }
+
     /* Nothing to do it with, or on */
     bool cannot(const QString &name, bool needsName = true)
     {
@@ -280,7 +318,13 @@ void VmSnapshots::take(const QString &name)
     d->setBusy(true);
     if (d->live()) {
         /* replaces the snapshot of that name, as qemu-img does not */
-        d->hmp("savevm " + hmpQuote(name), [this](const QString &error) { d->end(error); });
+        d->hmp("savevm " + hmpQuote(name), [this, name](const QString &error) {
+            if (needsDisksOnly(error)) {
+                d->takeDisks(name, error);
+            } else {
+                d->end(error);
+            }
+        });
         return;
     }
     QList<QStringList> removals, creations;
@@ -467,6 +511,53 @@ bool VmSnapshots::isValidName(const QString &name)
     static const QRegularExpression digits("^[0-9]+$");
 
     return !name.trimmed().isEmpty() && name == name.trimmed() && !digits.match(name).hasMatch();
+}
+
+bool VmSnapshots::needsDisksOnly(const QString &error)
+{
+    /* devices QEMU cannot migrate (virgl, VFIO...), or raw files it writes to */
+    return error.contains("migrat", Qt::CaseInsensitive) ||
+           error.contains("does not support snapshots");
+}
+
+QString VmSnapshots::disksOnlyReason(const QString &error)
+{
+    static const QRegularExpression writable("Device '([^']+)' is writable but does not "
+                                             "support snapshots");
+    const QRegularExpressionMatch m = writable.match(error);
+
+    if (error.contains("virgl")) {
+        return tr("This snapshot holds the disks only: QEMU cannot save the running state of "
+                  "a VM with 3D graphics (virgl).");
+    }
+    if (m.hasMatch()) {
+        return tr("This snapshot holds the qcow2 disks only: %1 is not in qcow2, so QEMU "
+                  "cannot save the running state.")
+            .arg(m.captured(1).startsWith("pflash") ? tr("the UEFI variables")
+                                                    : m.captured(1));
+    }
+    return tr("This snapshot holds the disks only: QEMU cannot save the running state of "
+              "this VM (%1).").arg(error.trimmed());
+}
+
+QJsonArray VmSnapshots::diskActions(const QJsonArray &queryBlock, const QString &name)
+{
+    QJsonArray actions;
+
+    for (const QJsonValue &block : queryBlock) {
+        const QJsonObject inserted = block["inserted"].toObject();
+        if (inserted.isEmpty() || inserted["ro"].toBool() ||
+            inserted["drv"].toString() != "qcow2") {
+            continue;
+        }
+        /* the drive's name, else the node's of a -blockdev */
+        const QString device = block["device"].toString().isEmpty()
+                                   ? inserted["node-name"].toString()
+                                   : block["device"].toString();
+        actions.append(QJsonObject{{"type", "blockdev-snapshot-internal-sync"},
+                                   {"data", QJsonObject{{"device", device}, {"name", name}}}});
+    }
+    return actions;
 }
 
 QString VmSnapshots::explain(const QString &error)

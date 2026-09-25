@@ -73,12 +73,21 @@ public:
     static bool isValidName(const QString &name);
     /* What QEMU said, in words for the user */
     static QString explain(const QString &error);
+    /* Whether savevm failed only for the running state, which a snapshot of the
+       qcow2 disks can do without; and why, in words for the user */
+    static bool needsDisksOnly(const QString &error);
+    static QString disksOnlyReason(const QString &error);
+    /* The blockdev-snapshot-internal-sync actions of a transaction snapshotting
+       the qcow2 images a running VM writes to, from query-block */
+    static QJsonArray diskActions(const QJsonArray &queryBlock, const QString &name);
 
 signals:
     /* @error is empty when the list is up to date */
     void listed(const QString &error);
     /* An action ended; @error is empty on success */
     void finished(const QString &error);
+    /* How it went, when not as asked: e.g. the disks only */
+    void notice(const QString &text);
     void busyChanged(bool busy);
 
 private:

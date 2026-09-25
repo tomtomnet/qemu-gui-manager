@@ -60,7 +60,8 @@ static QString clockText(qint64 ms)
 
 SnapshotView::SnapshotView(QWidget *parent)
     : QWidget(parent), m_drives(new Banner(Banner::Warning)),
-      m_error(new Banner(Banner::Warning)), m_table(new QTableWidget(0, 5)),
+      m_error(new Banner(Banner::Warning)), m_notice(new Banner(Banner::Information)),
+      m_table(new QTableWidget(0, 5)),
       m_progress(Widgets::hint()),
       m_take(new QPushButton(Icons::themed({"camera-photo", "document-save"},
                                            QStyle::SP_DialogSaveButton),
@@ -100,6 +101,7 @@ SnapshotView::SnapshotView(QWidget *parent)
     m_delete->setObjectName("delete");
     m_drives->setObjectName("drives");
     m_error->setObjectName("snapshotError");
+    m_notice->setObjectName("snapshotNotice");
     m_progress->setObjectName("progress");
     m_restore->setToolTip(tr("Take the VM back to where it was"));
     m_start->setToolTip(tr("Start the VM where it was when the snapshot was taken"));
@@ -119,10 +121,12 @@ SnapshotView::SnapshotView(QWidget *parent)
            "keeps the running state too, its memory, and the VM can go back to that moment.")));
     layout->addWidget(m_drives);
     layout->addWidget(m_error);
+    layout->addWidget(m_notice);
     layout->addLayout(tableRow, 1);
     layout->addWidget(m_progress);
     m_drives->hide();
     m_error->hide();
+    m_notice->hide();
     m_progress->hide();
 
     connect(m_table, &QTableWidget::itemSelectionChanged, this, &SnapshotView::updateButtons);
@@ -159,6 +163,7 @@ void SnapshotView::setVm(Vm *vm)
     m_vm = vm;
     m_table->setRowCount(0);
     m_error->hide();
+    m_notice->hide();
     m_progress->hide();
     unsetCursor();
     if (vm) {
@@ -179,6 +184,10 @@ void SnapshotView::setVm(Vm *vm)
             updateButtons();
         });
         connect(m_snapshots, &VmSnapshots::busyChanged, this, &SnapshotView::updateButtons);
+        connect(m_snapshots, &VmSnapshots::notice, this, [this](const QString &text) {
+            m_notice->setText(text.toHtmlEscaped());
+            m_notice->show();
+        });
         connect(vm, &Vm::changed, this, [this]() {
             m_snapshots->setVm(m_vm->args(), m_vm->dir());
             updateDrives();
@@ -298,10 +307,8 @@ void SnapshotView::updateDrives()
         m_drives->setText(tr("The VM has no qcow2 disk to keep snapshots in. Only qcow2 files "
                              "can hold them; qemu-img convert makes one of a disk."));
     } else if (!cannot.isEmpty() && live) {
-        m_cannotTake = true;
-        m_drives->setText(tr("A snapshot of the running VM needs every file it writes to in "
-                             "qcow2, and %1 is not. Stop the VM to take a snapshot of its "
-                             "qcow2 disks alone.")
+        m_drives->setText(tr("Snapshots leave out %1, which is not in qcow2, and hold the "
+                             "disks only: QEMU cannot save the running state then.")
                               .arg(cannot.join(", ").toHtmlEscaped()));
     } else if (!cannot.isEmpty()) {
         m_drives->setText(tr("Snapshots leave out %1, which is not in qcow2.")
@@ -320,6 +327,7 @@ QString SnapshotView::selected() const
 void SnapshotView::busy(const QString &what)
 {
     m_error->hide();
+    m_notice->hide();
     m_progress->setText(what);
     m_progress->show();
     setCursor(Qt::BusyCursor);

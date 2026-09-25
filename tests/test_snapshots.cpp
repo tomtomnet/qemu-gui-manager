@@ -158,6 +158,25 @@ private slots:
         QCOMPARE(all[1].stateBytes, 821653);
     }
 
+    void disksOnly()
+    {
+        QVERIFY(VmSnapshots::needsDisksOnly("virgl is not yet migratable"));
+        QVERIFY(VmSnapshots::needsDisksOnly("Device 'pflash1' is writable but does not support "
+                                            "snapshots"));
+        QVERIFY(!VmSnapshots::needsDisksOnly("Snapshot 'x' does not exist in one or more devices"));
+        QVERIFY(VmSnapshots::disksOnlyReason("virgl is not yet migratable").contains("3D"));
+        QVERIFY(VmSnapshots::disksOnlyReason("Device 'pflash1' is writable but does not support "
+                                             "snapshots").contains("UEFI"));
+
+        const QJsonArray actions =
+            VmSnapshots::diskActions(QJsonDocument::fromJson(kQueryBlock).array(), "s");
+        QCOMPARE(actions.size(), 2);
+        QCOMPARE(actions[0]["type"].toString(), "blockdev-snapshot-internal-sync");
+        QCOMPARE(actions[0]["data"]["device"].toString(), "virtio0");
+        QCOMPARE(actions[1]["data"]["device"].toString(), "virtio1");
+        QCOMPARE(actions[1]["data"]["name"].toString(), "s");
+    }
+
     void hmp()
     {
         QCOMPARE(VmSnapshots::hmpError(""), QString());
@@ -238,7 +257,7 @@ private slots:
                                               "-machine q35\n-m 64\n-nodefaults\n-display none\n"
                                               "-drive file=disk.qcow2,format=qcow2,if=virtio\n"
                                               "-drive file=data.qcow2,format=qcow2,if=virtio\n");
-        VmRunner runner(QString("qgm-snap-%1").arg(++count), dir);
+        VmRunner runner(QString("qgm-snap-%1-%2").arg(QCoreApplication::applicationPid()).arg(++count), dir);
         VmSnapshots snapshots(&runner);
         snapshots.setVm(args, dir);
 
@@ -272,6 +291,48 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(runner.state(), VmRunner::State::Stopped, 10000);
     }
 
+    /* 3D graphics: QEMU cannot save the running state of virgl, so the disks only */
+    void virgl()
+    {
+        if (!QFileInfo(testQemu()).isExecutable() || !QFileInfo(qemuImg()).isExecutable()) {
+            QSKIP("no QEMU build, set QGM_TEST_QEMU");
+        }
+        const QString dir = tmp.filePath("virgl");
+        QDir().mkpath(dir);
+        create(dir + "/disk.qcow2");
+        create(dir + "/data.qcow2");
+        const ArgsFile args = ArgsFile::parse("#qemu " + testQemu() + "\n"
+                                              "-machine q35\n-m 128\n-nodefaults\n"
+                                              "-display egl-headless\n"
+                                              "-device virtio-vga-gl,blob=on,hostmem=64M\n"
+                                              "-drive file=disk.qcow2,format=qcow2,if=virtio\n"
+                                              "-drive file=data.qcow2,format=qcow2,if=virtio\n");
+        VmRunner runner(QString("qgm-snap-%1-%2").arg(QCoreApplication::applicationPid()).arg(++count), dir);
+        VmSnapshots snapshots(&runner);
+        QSignalSpy notice(&snapshots, &VmSnapshots::notice);
+        snapshots.setVm(args, dir);
+
+        runner.start(args);
+        for (int i = 0; i < 200 && runner.state() != VmRunner::State::Running &&
+                        !(i > 10 && runner.state() == VmRunner::State::Stopped); i++) {
+            QTest::qWait(100);
+        }
+        if (runner.state() != VmRunner::State::Running) {
+            QSKIP(qPrintable("QEMU does not run with virgl here: " + runner.errorString()));
+        }
+        QCOMPARE(act(snapshots, [&]() { snapshots.take("gl"); }), QString());
+        QCOMPARE(names(snapshots), QStringList({"gl"}));
+        QCOMPARE(snapshots.snapshots()[0].files.size(), 2);
+        QCOMPARE(notice.size(), 1);
+        QVERIFY2(notice[0][0].toString().contains("virgl"), qPrintable(notice[0][0].toString()));
+        /* again: it replaces the first, as savevm would */
+        QCOMPARE(act(snapshots, [&]() { snapshots.take("gl"); }), QString());
+        QCOMPARE(names(snapshots), QStringList({"gl"}));
+        QCOMPARE(runner.state(), VmRunner::State::Running);
+        runner.forceOff();
+        QTRY_COMPARE_WITH_TIMEOUT(runner.state(), VmRunner::State::Stopped, 10000);
+    }
+
     /* A file QEMU writes to that is not qcow2 */
     void rawFiles()
     {
@@ -286,14 +347,20 @@ private slots:
                                               "-machine q35\n-m 64\n-nodefaults\n-display none\n"
                                               "-drive file=disk.qcow2,format=qcow2,if=virtio\n"
                                               "-drive file=raw.img,format=raw,if=virtio\n");
-        VmRunner runner(QString("qgm-snap-%1").arg(++count), dir);
+        VmRunner runner(QString("qgm-snap-%1-%2").arg(QCoreApplication::applicationPid()).arg(++count), dir);
         VmSnapshots snapshots(&runner);
         snapshots.setVm(args, dir);
 
         runner.start(args);
         QTRY_COMPARE_WITH_TIMEOUT(runner.state(), VmRunner::State::Running, 20000);
-        const QString error = act(snapshots, [&]() { snapshots.take("x"); });
-        QVERIFY2(error.contains("virtio1") && error.contains("qcow2"), qPrintable(error));
+        /* the qcow2 disk alone, as when the VM is stopped, and a word on it */
+        QSignalSpy notice(&snapshots, &VmSnapshots::notice);
+        QCOMPARE(act(snapshots, [&]() { snapshots.take("x"); }), QString());
+        QCOMPARE(names(snapshots), QStringList({"x"}));
+        QCOMPARE(snapshots.snapshots()[0].files.size(), 1);
+        QCOMPARE(QFileInfo(snapshots.snapshots()[0].files[0]).fileName(), "disk.qcow2");
+        QCOMPARE(notice.size(), 1);
+        QVERIFY2(notice[0][0].toString().contains("virtio1"), qPrintable(notice[0][0].toString()));
         QCOMPARE(runner.state(), VmRunner::State::Running);
         runner.forceOff();
         QTRY_COMPARE_WITH_TIMEOUT(runner.state(), VmRunner::State::Stopped, 10000);

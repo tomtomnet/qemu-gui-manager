@@ -42,6 +42,7 @@ private:
     VmSnapshots *m_snapshots = nullptr;
     Banner *m_drives;
     Banner *m_error;
+    Banner *m_notice;
     QTableWidget *m_table;
     QLabel *m_progress;
     QPushButton *m_take;
