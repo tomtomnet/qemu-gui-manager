@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "snapshotview.h"
 
+#include <QCollator>
 #include <QDateTime>
 #include <QFileInfo>
 #include <QHBoxLayout>
@@ -18,6 +19,36 @@
 #include "ui/banner.h"
 #include "ui/icons.h"
 #include "ui/widgets.h"
+
+enum Column { Name, Taken, Kind, State, Clock };
+
+/* A cell that sorts by a key, such as the time a snapshot was taken, not by its text */
+class SortItem : public QTableWidgetItem
+{
+public:
+    SortItem(const QString &text, const QVariant &key) : QTableWidgetItem(text)
+    {
+        setData(Qt::UserRole, key);
+    }
+
+    bool operator<(const QTableWidgetItem &other) const override
+    {
+        const QVariant a = data(Qt::UserRole);
+        const QVariant b = other.data(Qt::UserRole);
+
+        /* names as people sort them: "snap 2" before "snap 10", whatever the case */
+        if (a.typeId() == QMetaType::QString) {
+            static const QCollator collator = [] {
+                QCollator c;
+                c.setNumericMode(true);
+                c.setCaseSensitivity(Qt::CaseInsensitive);
+                return c;
+            }();
+            return collator.compare(a.toString(), b.toString()) < 0;
+        }
+        return a.toLongLong() < b.toLongLong();
+    }
+};
 
 static QString clockText(qint64 ms)
 {
@@ -59,6 +90,10 @@ SnapshotView::SnapshotView(QWidget *parent)
     m_table->setSelectionMode(QAbstractItemView::SingleSelection);
     m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_table->setWordWrap(false);
+    /* the latest first; a click on a column sorts by it, and again the other way */
+    m_table->horizontalHeaderItem(Taken)->setData(Qt::InitialSortOrderRole, Qt::DescendingOrder);
+    m_table->setSortingEnabled(true);
+    m_table->sortByColumn(Taken, Qt::DescendingOrder);
     m_take->setObjectName("take");
     m_restore->setObjectName("restore");
     m_start->setObjectName("startFrom");
@@ -178,23 +213,30 @@ void SnapshotView::fill()
     const QList<VmSnapshots::Snapshot> list = m_snapshots->snapshots();
     const QLocale locale;
 
+    /* rows would move as they go in: sorted once all are in, by the column chosen */
+    m_table->setSortingEnabled(false);
     m_table->setRowCount(0);
     for (const VmSnapshots::Snapshot &s : list) {
         const int row = m_table->rowCount();
+        const bool state = s.stateBytes > 0;
         QStringList files;
         for (const QString &file : s.files) {
             files << QFileInfo(file).fileName();
         }
         m_table->insertRow(row);
-        m_table->setItem(row, 0, new QTableWidgetItem(s.name));
-        m_table->setItem(row, 1, new QTableWidgetItem(locale.toString(s.date, QLocale::ShortFormat)));
-        m_table->setItem(row, 2, new QTableWidgetItem(s.stateBytes > 0 ? tr("Disks and running state")
-                                                                       : tr("Disks only")));
-        m_table->setItem(row, 3, new QTableWidgetItem(
-            s.stateBytes > 0 ? locale.formattedDataSize(s.stateBytes, 1, QLocale::DataSizeIecFormat)
-                             : QString("—")));
-        m_table->setItem(row, 4, new QTableWidgetItem(s.stateBytes > 0 ? clockText(s.vmClockMs)
-                                                                      : QString("—")));
+        m_table->setItem(row, Name, new SortItem(s.name, s.name));
+        m_table->setItem(row, Taken, new SortItem(locale.toString(s.date, QLocale::ShortFormat),
+                                                  s.date.toMSecsSinceEpoch()));
+        m_table->setItem(row, Kind, new SortItem(state ? tr("Disks and running state")
+                                                       : tr("Disks only"),
+                                                 state ? 1 : 0));
+        m_table->setItem(row, State,
+                         new SortItem(state ? locale.formattedDataSize(s.stateBytes, 1,
+                                                                       QLocale::DataSizeIecFormat)
+                                            : QString("—"),
+                                      s.stateBytes));
+        m_table->setItem(row, Clock, new SortItem(state ? clockText(s.vmClockMs) : QString("—"),
+                                                  state ? s.vmClockMs : -1));
         for (int column = 0; column < 5; column++) {
             m_table->item(row, column)->setToolTip(tr("In %1").arg(files.join(", ")));
         }
@@ -202,6 +244,7 @@ void SnapshotView::fill()
             m_table->selectRow(row);
         }
     }
+    m_table->setSortingEnabled(true);
     updateButtons();
 }
 
