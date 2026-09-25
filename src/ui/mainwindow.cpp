@@ -25,10 +25,12 @@
 
 #include "core/paths.h"
 #include "core/qemuinfo.h"
+#include "core/vmconfig.h"
 #include "core/vmrunner.h"
 #include "core/vmstore.h"
 #include "ui/icons.h"
 #include "ui/importdialog.h"
+#include "ui/memorymonitor.h"
 #include "ui/newvmdialog.h"
 #include "ui/preferencesdialog.h"
 #include "ui/qemubuilddialog.h"
@@ -199,6 +201,7 @@ MainWindow::MainWindow(VmStore *store, QWidget *parent)
     setCentralWidget(m_splitter);
 
     m_qemuStatus->setObjectName("qemuStatus");
+    statusBar()->addPermanentWidget(new MemoryMonitor(store, this));
     statusBar()->addPermanentWidget(m_qemuStatus);
 
     connect(create, &QPushButton::clicked, m_new, &QAction::trigger);
@@ -625,10 +628,11 @@ void MainWindow::start()
     if (!vm) {
         return;
     }
-    if (Paths::qemuBinary().isEmpty()) {
+    if (VmConfig::qemuBinary(vm->args()).isEmpty() && Paths::qemuBinary().isEmpty()) {
         QMessageBox::warning(this, tr("QEMU Not Found"),
-                             tr("qemu-system-x86_64 is not in PATH. Choose the QEMU to use "
-                                "in the preferences."));
+                             tr("%1 is not in PATH. Choose the QEMU to use in the "
+                                "preferences, or build one with File > Build QEMU.")
+                                 .arg(Paths::qemuSystemName()));
         return;
     }
     m_errors.remove(vm->id());

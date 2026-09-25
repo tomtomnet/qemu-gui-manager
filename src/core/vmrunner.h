@@ -49,6 +49,8 @@ public:
     void forceOff();
     /* Null while stopped */
     QmpClient *qmp() const;
+    /* QEMU's process, 0 while stopped */
+    qint64 pid() const;
 
 signals:
     void stateChanged(VmRunner::State state);

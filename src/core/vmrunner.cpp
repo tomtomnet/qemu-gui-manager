@@ -659,6 +659,11 @@ void VmRunner::forceOff()
     }
 }
 
+qint64 VmRunner::pid() const
+{
+    return isActive() ? d->pid : 0;
+}
+
 QmpClient *VmRunner::qmp() const
 {
     return isActive() ? d->qmp : nullptr;

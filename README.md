@@ -33,6 +33,8 @@ fork whose SDL window has a menu, but it runs any `qemu-system-x86_64`.
   When QEMU runs from a build tree, it includes the full documentation from
   `qemu-options.hx`.
 - Import a launch script: the manager takes the QEMU command out of it.
+- A warning in the status bar when the running VMs could take more memory
+  than is free, before the kernel has to kill one.
 - A different QEMU build per VM, if one needs it.
 
 ## Build (Fedora)
@@ -81,31 +83,36 @@ Choose the QEMU binary in File > Preferences. It defaults to the
 
 ## Building QEMU and virglrenderer
 
-File > Build QEMU downloads [qemu-gui](https://github.com/tomtomnet/qemu-gui)
-(or takes your own checkout), builds just the emulator and `qemu-img`, and
-makes the result the QEMU of your VMs. It needs QEMU's build dependencies:
-`sudo dnf builddep qemu`.
+File > Build QEMU downloads [qemu-gui](https://github.com/tomtomnet/qemu-gui),
+builds just the emulator for your computer's architecture (x86-64, or
+aarch64 on ARM such as Asahi Linux) and `qemu-img`, and makes the result the
+QEMU of your VMs. Building again updates it first. It needs QEMU's build
+dependencies: `sudo dnf builddep qemu`. To run another QEMU, choose it in
+the preferences, or for one VM with a `#qemu` line.
 
-It can also build virglrenderer, for 3D acceleration with DRM native
-context, which lets the guest drive the host GPU through its own driver:
+Tick **DRM native context** to also build a virglrenderer with the
+native context renderer of every GPU that has one. The guest's GPU driver
+then talks to the host GPU's own driver, for 3D acceleration close to the
+host's:
 
-- Fedora's virglrenderer has no native context renderer at all. Choose the
-  ones you want: Intel Xe, Intel i915, AMD, and Venus for Vulkan.
-- Xe needs a patch that isn't upstream yet, from
-  [xe-native-context-enablement](https://github.com/cmspam/xe-native-context-enablement).
-  The window adds it when you tick Xe. The guest needs that repository's
-  Mesa patch too.
-- The patches go on upstream virglrenderer, or on the newest release they
-  apply to.
+- Most distributions' virglrenderer has no native context renderer.
+  Fedora's has none.
+- The build has Intel (Xe included, through a patch from
+  [xe-native-context-enablement](https://github.com/cmspam/xe-native-context-enablement)
+  that isn't upstream yet), AMD, Qualcomm, Apple (Asahi), Arm Mali, and
+  Venus for Vulkan.
+- The patch goes on upstream virglrenderer, or on the newest release it
+  applies to.
 - virglrenderer installs into the manager's data folder, and the QEMU it
-  builds loads it from there. The system's virglrenderer stays as it is, and
-  a rebuilt virglrenderer takes effect at the next start of a VM. The window
-  shows which library QEMU loads.
+  builds loads it from there. The system's virglrenderer stays as it is,
+  and a rebuilt one takes effect at the next start of a VM.
 
 This needs virglrenderer's build dependencies too:
-`sudo dnf builddep virglrenderer`. A VM then uses native context with
-`-device virtio-vga-gl,blob=on,hostmem=4G,drm_native_context=on`, and with
-`-accel kvm,honor-guest-pat=on` on Intel.
+`sudo dnf builddep virglrenderer`. The guest needs native context support
+in its Mesa (for Xe, the Mesa patch of the repository above). A VM uses it
+with `-device virtio-vga-gl,blob=on,hostmem=4G,drm_native_context=on`
+(`virtio-gpu-gl-pci` on ARM), and with `-accel kvm,honor-guest-pat=on` on
+Intel.
 
 ## Shared folders
 

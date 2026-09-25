@@ -16,6 +16,8 @@ qt_add_library(qgm_core STATIC
     src/core/firmware.h
     src/core/hostdevices.cpp
     src/core/hostdevices.h
+    src/core/hostmemory.cpp
+    src/core/hostmemory.h
     src/core/importer.cpp
     src/core/importer.h
     src/core/optionvalue.cpp
@@ -52,6 +54,8 @@ qt_add_executable(qemu-gui-manager
     src/ui/importdialog.h
     src/ui/mainwindow.cpp
     src/ui/mainwindow.h
+    src/ui/memorymonitor.cpp
+    src/ui/memorymonitor.h
     src/ui/newvmdialog.cpp
     src/ui/newvmdialog.h
     src/ui/preferencesdialog.cpp
@@ -98,6 +102,7 @@ if(BUILD_TESTING)
             argsfile
             firmware
             hostdevices
+            hostmemory
             importer
             optionvalue
             qemubuilder
