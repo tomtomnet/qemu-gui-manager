@@ -11,6 +11,10 @@ can edit the file by hand at any time, in the manager or in any editor.
 It goes with [qemu-gui](https://github.com/tomtomnet/qemu-gui), the QEMU
 fork whose SDL window has a menu, but it runs any `qemu-system-x86_64`.
 
+> This project was written by AI: Claude (Anthropic) wrote its code, tests
+> and documentation in Claude Code, following its maintainer's requirements
+> and feedback.
+
 ## Features
 
 - A list of your VMs with their state. Start, pause, shut down, reset or
