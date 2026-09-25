@@ -19,6 +19,7 @@
 #include <QStackedWidget>
 #include <QStatusBar>
 #include <QStyledItemDelegate>
+#include <QTimer>
 #include <QToolBar>
 #include <QUrl>
 #include <QVBoxLayout>
@@ -37,11 +38,11 @@
 #include "ui/qemubuilddialog.h"
 #include "ui/qemudocs.h"
 #include "ui/referencepanel.h"
-#include "ui/settingsdialog.h"
 #include "ui/textdialog.h"
 #include "ui/uiconfig.h"
 #include "ui/usbaccess.h"
 #include "ui/vmdetails.h"
+#include "ui/vmpane.h"
 #include "ui/widgets.h"
 
 enum { IdRole = Qt::UserRole, StateRole, StateColorRole };
@@ -166,8 +167,8 @@ public:
 
 MainWindow::MainWindow(VmStore *store, QWidget *parent)
     : QMainWindow(parent), m_store(store), m_list(new QListWidget),
-      m_right(new QStackedWidget), m_details(new VmDetails), m_splitter(new QSplitter),
-      m_qemuStatus(new QLabel)
+      m_right(new QStackedWidget), m_pane(new VmPane), m_details(m_pane->details()),
+      m_splitter(new QSplitter), m_qemuStatus(new QLabel)
 {
     auto *welcome = new QWidget;
     auto *welcomeLayout = new QVBoxLayout(welcome);
@@ -192,14 +193,14 @@ MainWindow::MainWindow(VmStore *store, QWidget *parent)
     welcomeLayout->addWidget(create, 0, Qt::AlignCenter);
     welcomeLayout->addStretch();
     m_right->addWidget(welcome);
-    m_right->addWidget(m_details);
+    m_right->addWidget(m_pane);
 
     m_splitter->addWidget(m_list);
     m_splitter->addWidget(m_right);
     m_splitter->setStretchFactor(0, 0);
     m_splitter->setStretchFactor(1, 1);
     m_splitter->setChildrenCollapsible(false);
-    m_splitter->setSizes({280, 700});
+    m_splitter->setSizes({260, 800});
     setCentralWidget(m_splitter);
 
     m_qemuStatus->setObjectName("qemuStatus");
@@ -234,7 +235,8 @@ MainWindow::MainWindow(VmStore *store, QWidget *parent)
         addVm(vm);
     }
     if (!restoreGeometry(settings.value("mainwindow/geometry").toByteArray())) {
-        resize(1000, 640);
+        /* the tabs in full */
+        resize(1060, 660);
     }
     restoreState(settings.value("mainwindow/state").toByteArray());
     m_splitter->restoreState(settings.value("mainwindow/splitter").toByteArray());
@@ -243,6 +245,7 @@ MainWindow::MainWindow(VmStore *store, QWidget *parent)
         m_list->setCurrentRow(0);
     }
     currentChanged();
+    m_pane->setTab(VmPane::Tab(settings.value("mainwindow/tab").toInt()));
     updateStatus();
 }
 
@@ -268,7 +271,7 @@ void MainWindow::createActions()
                      &MainWindow::buildQemu);
     m_settings = new QAction(Icons::themed({"configure", "preferences-system"},
                                            QStyle::SP_FileDialogDetailedView),
-                             tr("&Settings…"), this);
+                             tr("&Settings"), this);
     m_settings->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_S));
     connect(m_settings, &QAction::triggered, this, [this]() { openSettings(current()); });
     m_start = action(tr("S&tart"), {"media-playback-start"}, QStyle::SP_MediaPlay,
@@ -493,6 +496,10 @@ void MainWindow::failed(Vm *vm, const QString &error)
 
 void MainWindow::removeItem(const QString &id)
 {
+    /* its changes go with it */
+    if (m_pane->vm() && m_pane->vm()->id() == id) {
+        m_pane->setVm(nullptr);
+    }
     m_errors.remove(id);
     m_states.remove(id);
     m_endedFrom.remove(id);
@@ -533,10 +540,37 @@ void MainWindow::updateItem(Vm *vm)
 
 void MainWindow::currentChanged()
 {
+    /* the changes not applied to the VM shown: asked about after the click */
+    if (m_pane->vm() && current() != m_pane->vm() && m_pane->isModified()) {
+        if (!m_leaving) {
+            m_leaving = true;
+            QTimer::singleShot(0, this, &MainWindow::leaveVm);
+        }
+        return;
+    }
+    showCurrent();
+}
+
+void MainWindow::leaveVm()
+{
+    Vm *shown = m_pane->vm();
+
+    m_leaving = false;
+    if (shown && current() != shown &&
+        !m_pane->confirmChanges(tr("Apply them before going to another VM?"))) {
+        /* Cancel: back to it */
+        select(shown->id());
+        return;
+    }
+    showCurrent();
+}
+
+void MainWindow::showCurrent()
+{
     Vm *vm = current();
 
     m_right->setCurrentIndex(m_list->count() == 0 ? 0 : 1);
-    m_details->setVm(vm);
+    m_pane->setVm(vm);
     m_details->setError(vm ? m_errors.value(vm->id()) : QString());
     updateActions();
 }
@@ -595,7 +629,7 @@ void MainWindow::newVm()
         QMessageBox::information(this, tr("VM Created"), dialog.warnings().join("\n\n"));
     }
     if (dialog.openSettings()) {
-        openSettings(dialog.vm(), SettingsDialog::Arguments);
+        openSettings(dialog.vm(), VmPane::Arguments);
     }
 }
 
@@ -636,11 +670,8 @@ void MainWindow::openSettings(Vm *vm, int page)
     if (!vm) {
         return;
     }
-    SettingsDialog dialog(vm, this);
-    if (page >= 0) {
-        dialog.setPage(SettingsDialog::Page(page));
-    }
-    dialog.exec();
+    select(vm->id());
+    m_pane->setTab(page >= 0 ? VmPane::Tab(page) : m_pane->settingsTab());
 }
 
 void MainWindow::start()
@@ -648,6 +679,10 @@ void MainWindow::start()
     Vm *vm = current();
 
     if (!vm) {
+        return;
+    }
+    /* it starts with the settings saved */
+    if (vm == m_pane->vm() && !m_pane->confirmChanges(tr("Apply them before it starts?"))) {
         return;
     }
     if (VmConfig::qemuBinary(vm->args()).isEmpty() && Paths::qemuBinary().isEmpty()) {
@@ -743,6 +778,9 @@ void MainWindow::cloneVm()
     if (!vm || vm->runner()->isActive()) {
         return;
     }
+    if (vm == m_pane->vm() && !m_pane->confirmChanges(tr("Apply them before cloning it?"))) {
+        return;
+    }
     CloneDialog dialog(m_store, vm, this);
     if (dialog.exec() == QDialog::Accepted && dialog.clone()) {
         select(dialog.clone()->id());
@@ -752,16 +790,18 @@ void MainWindow::cloneVm()
 void MainWindow::remove()
 {
     Vm *vm = current();
-    QString error;
+    QString error, text;
 
     if (!vm || vm->runner()->isActive()) {
         return;
     }
-    if (Widgets::confirm(this, QMessageBox::Question, tr("Remove %1?").arg(vm->name()),
-                tr("The folder of %1, disks included, goes to the trash, where you can "
-                   "still restore it from.")
-                    .arg(vm->name()),
-                tr("&Move to Trash")) &&
+    text = tr("The folder of %1, disks included, goes to the trash, where you can still "
+              "restore it from.").arg(vm->name());
+    if (vm == m_pane->vm() && m_pane->isModified()) {
+        text += ' ' + tr("The changes to its settings that are not applied are lost.");
+    }
+    if (Widgets::confirm(this, QMessageBox::Question, tr("Remove %1?").arg(vm->name()), text,
+                         tr("&Move to Trash")) &&
         !m_store->remove(vm, &error)) {
         QMessageBox::warning(this, tr("Cannot Remove the VM"), error);
     }
@@ -788,9 +828,14 @@ void MainWindow::closeEvent(QCloseEvent *event)
     QSettings settings(Paths::settingsPath(), QSettings::IniFormat);
     const Vm *vm = current();
 
+    if (!m_pane->confirmChanges(tr("Apply them before closing?"))) {
+        event->ignore();
+        return;
+    }
     settings.setValue("mainwindow/geometry", saveGeometry());
     settings.setValue("mainwindow/state", saveState());
     settings.setValue("mainwindow/splitter", m_splitter->saveState());
     settings.setValue("mainwindow/current", vm ? vm->id() : QString());
+    settings.setValue("mainwindow/tab", int(m_pane->tab()));
     QMainWindow::closeEvent(event);
 }

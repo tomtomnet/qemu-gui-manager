@@ -76,8 +76,6 @@ qt_add_executable(qemu-gui-manager
     src/ui/qemudocs.h
     src/ui/referencepanel.cpp
     src/ui/referencepanel.h
-    src/ui/settingsdialog.cpp
-    src/ui/settingsdialog.h
     src/ui/settingspages.cpp
     src/ui/settingspages.h
     src/ui/textdialog.cpp
@@ -88,6 +86,8 @@ qt_add_executable(qemu-gui-manager
     src/ui/usbaccess.h
     src/ui/vmdetails.cpp
     src/ui/vmdetails.h
+    src/ui/vmpane.cpp
+    src/ui/vmpane.h
     src/ui/widgets.cpp
     src/ui/widgets.h
 )
