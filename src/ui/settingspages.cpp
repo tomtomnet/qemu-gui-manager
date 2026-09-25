@@ -782,7 +782,7 @@ void DisplayPage::load(const ArgsFile &args)
 
     m_custom->setText(tr("The graphics of this VM are set by hand (%1): change them on the "
                          "Arguments page. The window can change here.")
-                          .arg(m_loaded.custom));
+                          .arg(m_loaded.custom.toHtmlEscaped()));
     m_custom->setVisible(m_loaded.kind == Kind::Custom);
     update();
 }

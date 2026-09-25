@@ -28,6 +28,10 @@
 #include "ui/qemudocs.h"
 #include "ui/uiconfig.h"
 
+/* How to build a guest Mesa with native context, in the repository */
+static const char kGuestMesaGuide[] =
+    "https://github.com/tomtomnet/qemu-gui-manager/blob/main/docs/guest-mesa.md";
+
 /* The guest shut down, but -no-shutdown keeps QEMU open until Force Off */
 static bool keptOpen(const Vm *vm)
 {
@@ -178,9 +182,9 @@ void VmDetails::refresh()
                                                  : GpuContexts::Status::Unknown) {
     case GpuContexts::Status::Virgl:
         m_contextsNote->setText(
-            tr("The guest does not use DRM native context: it draws through virgl, which is much "
-               "slower. Its Mesa has no native context for this GPU; most distributions leave "
-               "it out (Arch has it for AMD)."));
+            tr("DRM native context was enabled, but this guest's Mesa doesn't support it. You may "
+               "refer to <a href=\"%1\">Building Mesa with native context</a>.")
+                .arg(kGuestMesaGuide));
         m_contextsNote->show();
         break;
     case GpuContexts::Status::NotOffered:

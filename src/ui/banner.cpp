@@ -23,6 +23,8 @@ Banner::Banner(Type type, QWidget *parent)
     m_icon->setPixmap(icon.pixmap(size, size));
     m_icon->setAlignment(Qt::AlignTop);
     m_text->setWordWrap(true);
+    /* always rich: guessing would show the entities of an escaped line */
+    m_text->setTextFormat(Qt::RichText);
     m_text->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::LinksAccessibleByMouse);
     m_text->setOpenExternalLinks(true);
     m_button->hide();

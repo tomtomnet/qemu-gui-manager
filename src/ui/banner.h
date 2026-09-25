@@ -16,6 +16,7 @@ public:
 
     explicit Banner(Type type, QWidget *parent = nullptr);
 
+    /* Rich text, whose links open in the browser: escape plain parts with toHtmlEscaped() */
     void setText(const QString &text);
     /* A button on the right, hidden until given a text */
     QPushButton *button() const { return m_button; }
