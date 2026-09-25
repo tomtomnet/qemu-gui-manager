@@ -113,8 +113,14 @@ host's:
   [xe-native-context-enablement](https://github.com/cmspam/xe-native-context-enablement)
   that isn't upstream yet), AMD, Qualcomm, Apple (Asahi), Arm Mali, and
   Venus for Vulkan.
-- The patch goes on upstream virglrenderer, or on the newest release it
-  applies to.
+- For AMD, [a patch of ours](data/patches/virglrenderer-amdgpu-force-wc.patch)
+  maps the GPU memory the guest writes into with write-combining. Without
+  it the guest's uploads stall, and KDE and other Qt desktops stutter, the
+  more the bigger the windows. It's a pragmatic fix, not upstream; it
+  needs `-accel kvm,honor-guest-pat=on`.
+- The patches go on upstream virglrenderer, or on the newest release they
+  all apply to. When a manager update brings a new patch, build again:
+  virglrenderer is patched and recompiled.
 - virglrenderer installs into the manager's data folder, and the QEMU it
   builds loads it from there. The system's virglrenderer stays as it is,
   and a rebuilt one takes effect at the next start of a VM.
@@ -123,8 +129,9 @@ This needs virglrenderer's build dependencies too:
 `sudo dnf builddep virglrenderer`. The guest needs native context support
 in its Mesa (for Xe, the Mesa patch of the repository above). A VM uses it
 with `-device virtio-vga-gl,blob=on,hostmem=4G,drm_native_context=on`
-(`virtio-gpu-gl-pci` on ARM), and with `-accel kvm,honor-guest-pat=on` on
-Intel.
+(`virtio-gpu-gl-pci` on ARM), and with `-accel kvm,honor-guest-pat=on`,
+which Intel needs and the AMD patch relies on. The Display settings add
+it.
 
 A guest whose Mesa has no native context for the GPU falls back to virgl
 without a word, and most distributions leave it out (Arch has it for AMD,

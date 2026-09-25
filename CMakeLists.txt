@@ -56,6 +56,9 @@ qt_add_library(qgm_core STATIC
     src/core/vmtemplate.h
 )
 target_include_directories(qgm_core PUBLIC src)
+# the virglrenderer patches File > Build QEMU applies
+qt_add_resources(qgm_core virglpatches PREFIX / BASE data
+    FILES data/patches/virglrenderer-amdgpu-force-wc.patch)
 target_link_libraries(qgm_core PUBLIC
     Qt6::Core Qt6::Concurrent Qt6::Gui Qt6::Network)
 target_compile_options(qgm_core PRIVATE -Wall -Wextra)

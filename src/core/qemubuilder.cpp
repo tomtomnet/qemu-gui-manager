@@ -106,6 +106,24 @@ meson setup "$build" "$src" --prefix="$prefix" --libdir=lib --buildtype=release 
 echo "$options" > "$build/qgm-options"
 )sh";
 
+/* Writes the resource @resource to @file; the error, if any */
+static QString writeOut(const QString &resource, const QString &file)
+{
+    QFile in(resource);
+    QFile out(file);
+
+    if (!in.open(QIODevice::ReadOnly)) {
+        return QString("%1: %2").arg(resource, in.errorString());
+    }
+    const QByteArray data = in.readAll();
+    if (!QDir().mkpath(QFileInfo(file).absolutePath()) ||
+        !out.open(QIODevice::WriteOnly | QIODevice::Truncate) || out.write(data) != data.size() ||
+        !out.flush()) {
+        return QString("%1: %2").arg(file, out.errorString());
+    }
+    return {};
+}
+
 QString QemuBuilder::defaultSourceDir()
 {
     return Paths::dataDir() + "/qemu";
@@ -160,6 +178,11 @@ QString QemuBuilder::xePatchUrl()
            "virglrenderer-xe-native-context.patch";
 }
 
+QString QemuBuilder::amdgpuWcPatch()
+{
+    return ":/patches/virglrenderer-amdgpu-force-wc.patch";
+}
+
 QStringList QemuBuilder::allRenderers()
 {
     return {"amdgpu-experimental", "i915-experimental", "xe-experimental", "msm", "asahi",
@@ -173,7 +196,7 @@ QemuBuilder::Virgl QemuBuilder::defaultVirgl()
     virgl.enabled = true;
     virgl.dir = defaultVirglDir();
     virgl.url = defaultVirglUrl();
-    virgl.patches = {xePatchUrl()};
+    virgl.patches = {xePatchUrl(), amdgpuWcPatch()};
     virgl.renderers = allRenderers();
     virgl.venus = true;
     return virgl;
@@ -305,14 +328,26 @@ void QemuBuilder::addVirglSteps(const Virgl &virgl, int jobs)
     }
     for (qsizetype i = 0; i < virgl.patches.size(); i++) {
         const QString &patch = virgl.patches[i];
-        const QString name = QUrl(patch).fileName();
+        const bool resource = patch.startsWith(":/");
+        const QString name = resource ? QFileInfo(patch).fileName() : QUrl(patch).fileName();
+        const QString file = QString("%1/%2-%3").arg(patchDir).arg(i + 1)
+                                 .arg(name.isEmpty() ? QString("patch") : name);
 
+        if (resource) {
+            /* the patch script takes files */
+            const QString error = writeOut(patch, file);
+            if (!error.isEmpty()) {
+                m_steps << Step{tr("Writing %1").arg(name), "sh",
+                                {"-c", "echo \"$1\" >&2; exit 1", "sh", error}, patchDir};
+            }
+            patches << file;
+            continue;
+        }
         if (!patch.contains("://")) {
             patches << QFileInfo(patch).absoluteFilePath();
             continue;
         }
-        patches << QString("%1/%2-%3").arg(patchDir).arg(i + 1)
-                       .arg(name.isEmpty() ? QString("patch") : name);
+        patches << file;
         m_steps << Step{tr("Downloading %1").arg(name), "curl",
                         {"--fail", "--silent", "--show-error", "--location", "--retry", "2",
                          "--output", patches.last(), patch}, patchDir};

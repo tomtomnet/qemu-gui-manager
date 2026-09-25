@@ -34,7 +34,8 @@ public:
         /* A branch or tag; empty for main, else the newest of the last
            releases that the patches apply to, else main without them */
         QString ref;
-        /* Files, or http(s) and file URLs, downloaded for each build */
+        /* Files; http(s) and file URLs, downloaded for each build; or
+           resources of the manager (:/patches/...), written out for each */
         QStringList patches;
         /* -Ddrm-renderers, e.g. xe-experimental: those the checkout does
            not know are left out */
@@ -74,6 +75,11 @@ public:
     static Virgl defaultVirgl();
     /* The Xe native context patch of github.com/cmspam/xe-native-context-enablement */
     static QString xePatchUrl();
+    /*
+     * Ours, a resource: AMD host blobs mapped write-combined, else the
+     * guest's CPU writes into its upload buffers stall and KDE stutters
+     */
+    static QString amdgpuWcPatch();
     /* Where the virglrenderer built in @virglDir installs its library */
     static QString virglLibDir(const QString &virglDir);
     /* The libvirglrenderer that @binary loads, as ldd resolves it */

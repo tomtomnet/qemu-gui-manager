@@ -334,11 +334,16 @@ shows a warning when it draws through virgl.
 
 - QEMU needs `-device virtio-vga-gl,blob=on,hostmem=4G,drm_native_context=on`
   (`virtio-gpu-gl-pci` on ARM), and `-accel kvm,honor-guest-pat=on` for
-  Intel GPUs. The **DRM native context** box of the Display settings adds
-  them.
+  Intel GPUs and for the AMD patch below. The **DRM native context** box of
+  the Display settings adds them.
 - The host's virglrenderer needs the native context renderer of its GPU,
   which most distributions leave out. File > Build QEMU builds one, see
   [Building QEMU and virglrenderer](../README.md#building-qemu-and-virglrenderer).
+- On AMD, that virglrenderer also carries a
+  [write-combining patch](../data/patches/virglrenderer-amdgpu-force-wc.patch):
+  without it the guest's uploads stall, and KDE stutters however good its
+  Mesa is. For Intel Xe, cmspam's Mesa patch does the same on the guest
+  side: it maps the upload buffers write-combined.
 
 ## What was checked
 

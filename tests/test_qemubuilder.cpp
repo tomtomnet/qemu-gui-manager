@@ -35,13 +35,35 @@ EOF
 
 /* A stand-in for virglrenderer: a library, and the renderers it accepts */
 static const char kVirglMeson[] = R"meson(project('virglrenderer', 'c', version : '1.3.0')
-lib = shared_library('virglrenderer', 'virgl.c', version : '1.9.0', install : true)
+lib = shared_library('virglrenderer', 'virgl.c', 'src/drm/amdgpu/amdgpu_renderer.c',
+                     version : '1.9.0', install : true)
 import('pkgconfig').generate(lib, name : 'virglrenderer', description : 'test')
 )meson";
 static const char kVirglOptions[] = R"meson(option('drm-renderers', type : 'array', value : [],
        choices : ['amdgpu-experimental'])
 option('venus', type : 'boolean', value : false)
 )meson";
+
+/* The lines of virglrenderer 1.3.0 around what our amdgpu patch changes, compiled out */
+static const char kAmdgpuRenderer[] = R"c(#if 0
+   /* If GEM_NEW fails, we can end up here without a backing obj or if it's a dumb buffer. */
+   if (!obj) {
+      print(0, "No object with blob_id=%ld", blob_id);
+      return -ENOENT;
+   }
+
+   if (obj->enable_cache_wc)
+      blob->map_info = VIRGL_RENDERER_MAP_CACHE_WC;
+   else
+      blob->map_info = VIRGL_RENDERER_MAP_CACHE_CACHED;
+
+   /* a memory can only be exported once; we don't want two resources to point
+    * to the same storage.
+    */
+   if (obj->exported) {
+#endif
+int amdgpu_renderer_stand_in(void) { return 0; }
+)c";
 
 class TestQemuBuilder : public QObject
 {
@@ -164,6 +186,7 @@ private slots:
         QVERIFY(write(virglRemote + "/meson.build", kVirglMeson));
         QVERIFY(write(virglRemote + "/meson_options.txt", kVirglOptions));
         QVERIFY(write(virglRemote + "/virgl.c", "int virgl_renderer_init(void) { return 0; }\n"));
+        QVERIFY(write(virglRemote + "/src/drm/amdgpu/amdgpu_renderer.c", kAmdgpuRenderer));
         git(virglRemote, {"init", "-q", "-b", "main"});
         git(virglRemote, {"add", "."});
         git(virglRemote, {"commit", "-q", "-m", "1.3.0"});
@@ -324,6 +347,70 @@ private slots:
                  qPrintable(log));
         /* the scripts are not in the log, their arguments are */
         QVERIFY2(!log.contains("git checkout -q -f --detach"), qPrintable(log));
+    }
+
+    /* Ours is in the manager, next to cmspam's */
+    void defaultPatches()
+    {
+        const QemuBuilder::Virgl virgl = QemuBuilder::defaultVirgl();
+        QCOMPARE(virgl.patches, QStringList({QemuBuilder::xePatchUrl(),
+                                             QemuBuilder::amdgpuWcPatch()}));
+
+        QFile f(QemuBuilder::amdgpuWcPatch());
+        QVERIFY2(f.open(QIODevice::ReadOnly), qPrintable(f.errorString()));
+        const QByteArray patch = f.readAll();
+        QVERIFY(patch.contains("\n+++ b/src/drm/amdgpu/amdgpu_renderer.c\n"));
+        QVERIFY(patch.contains("\n+   blob->map_info = VIRGL_RENDERER_MAP_CACHE_WC;\n"));
+        QVERIFY(patch.contains("honor-guest-pat=on"));
+    }
+
+    /*
+     * A virglrenderer built before our patch was in the set: with it, the
+     * checkout is patched again and what it changes compiles again; the
+     * same set after that leaves it alone
+     */
+    void virglResourcePatch()
+    {
+        if (!haveVirglTools()) {
+            QSKIP("needs meson, cc, pkg-config and curl");
+        }
+        const QString virglRemote = m_tmp.filePath("virgl-remote4");
+        const QString qemuRemote = m_tmp.filePath("qemu-remote4");
+        const QString patch = m_tmp.filePath("xe4.patch");
+
+        this->virglRemote(virglRemote, patch);
+        this->qemuRemote(qemuRemote);
+
+        QemuBuilder::Options o{m_tmp.filePath("qemu-src4"), "file://" + qemuRemote, "master",
+                               true, QemuBuilder::defaultConfigureArgs(), {}, 2};
+        o.virgl.enabled = true;
+        o.virgl.dir = m_tmp.filePath("virgl4");
+        o.virgl.url = "file://" + virglRemote;
+        o.virgl.patches = {"file://" + patch};
+        o.virgl.renderers = {"xe-experimental", "amdgpu-experimental"};
+        const QString renderer = o.virgl.dir + "/src/src/drm/amdgpu/amdgpu_renderer.c";
+
+        QemuBuilder b;
+        QCOMPARE(build(b, o), "");
+        QVERIFY(read(renderer).contains("if (obj->enable_cache_wc)"));
+
+        o.virgl.patches << QemuBuilder::amdgpuWcPatch();
+        QSignalSpy output(&b, &QemuBuilder::output);
+        const QString error = build(b, o);
+        const QString log = this->log(output);
+        QVERIFY2(error.isEmpty(), qPrintable(error + "\n" + log));
+        /* cmspam's takes 1.3.0 only; ours both */
+        QVERIFY2(log.contains("virglrenderer 1.3.0, with 2 patch(es)"), qPrintable(log));
+        QVERIFY(QFileInfo::exists(o.virgl.dir + "/patches/2-virglrenderer-amdgpu-force-wc.patch"));
+        QVERIFY(!read(renderer).contains("if (obj->enable_cache_wc)"));
+        QVERIFY(read(renderer).contains("blob->map_info = VIRGL_RENDERER_MAP_CACHE_WC;"));
+        QVERIFY2(log.contains("amdgpu_renderer.c.o"), qPrintable(log));
+
+        QSignalSpy again(&b, &QemuBuilder::output);
+        QCOMPARE(build(b, o), "");
+        const QString log2 = this->log(again);
+        QVERIFY2(log2.contains("virglrenderer 1.3.0, patched already"), qPrintable(log2));
+        QVERIFY2(!log2.contains("amdgpu_renderer.c.o"), qPrintable(log2));
     }
 
     void failure()

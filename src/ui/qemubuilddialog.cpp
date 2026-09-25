@@ -71,8 +71,8 @@ QemuBuildDialog::QemuBuildDialog(QWidget *parent)
     layout->addWidget(m_virgl);
     layout->addWidget(Widgets::hint(
         tr("Builds a virglrenderer with the renderers of every GPU that has one: Intel (Xe with "
-           "a patch not upstream yet), AMD, Qualcomm, Apple and Arm Mali, and Venus for "
-           "Vulkan. This QEMU uses it rather than the system's, which may have none. The "
+           "a patch not upstream yet), AMD (with a patch of ours for smooth desktops), "
+           "Qualcomm, Apple and Arm Mali, and Venus for Vulkan. This QEMU uses it rather than the system's, which may have none. The "
            "guest needs native context support in its Mesa.")));
     m_virglStatus = Widgets::hint();
     layout->addWidget(m_virglStatus);
