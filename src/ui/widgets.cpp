@@ -68,6 +68,19 @@ void Form::addRow(QWidget *label, QLayout *field)
 
 namespace Widgets {
 
+bool confirm(QWidget *parent, QMessageBox::Icon icon, const QString &title,
+             const QString &text, const QString &action)
+{
+    QMessageBox box(icon, title, text, QMessageBox::Cancel, parent);
+    QPushButton *yes = box.addButton(action, QMessageBox::DestructiveRole);
+
+    /* the KDE dialog would make the action the default button */
+    box.setOption(QMessageBox::Option::DontUseNativeDialog);
+    box.setDefaultButton(QMessageBox::Cancel);
+    box.exec();
+    return box.clickedButton() == yes;
+}
+
 Form *form()
 {
     return new Form;

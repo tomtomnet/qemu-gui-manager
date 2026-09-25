@@ -38,6 +38,7 @@
 #include "ui/textdialog.h"
 #include "ui/uiconfig.h"
 #include "ui/vmdetails.h"
+#include "ui/widgets.h"
 
 enum { IdRole = Qt::UserRole, StateRole, StateColorRole };
 
@@ -655,25 +656,11 @@ void MainWindow::shutDown()
     }
 }
 
-/* Asks before a destructive @action, which Enter does not trigger */
-static bool confirm(QWidget *parent, QMessageBox::Icon icon, const QString &title,
-                    const QString &text, const QString &action)
-{
-    QMessageBox box(icon, title, text, QMessageBox::Cancel, parent);
-    QPushButton *yes = box.addButton(action, QMessageBox::DestructiveRole);
-
-    /* the KDE dialog would make the action the default button */
-    box.setOption(QMessageBox::Option::DontUseNativeDialog);
-    box.setDefaultButton(QMessageBox::Cancel);
-    box.exec();
-    return box.clickedButton() == yes;
-}
-
 void MainWindow::reset()
 {
     Vm *vm = current();
 
-    if (vm && confirm(this, QMessageBox::Warning, tr("Reset %1?").arg(vm->name()),
+    if (vm && Widgets::confirm(this, QMessageBox::Warning, tr("Reset %1?").arg(vm->name()),
                       tr("The VM restarts at once: the guest loses its unsaved work."),
                       tr("&Reset"))) {
         vm->runner()->reset();
@@ -692,7 +679,7 @@ void MainWindow::forceOff()
         vm->runner()->forceOff();
         return;
     }
-    if (confirm(this, QMessageBox::Warning, tr("Force Off %1?").arg(vm->name()),
+    if (Widgets::confirm(this, QMessageBox::Warning, tr("Force Off %1?").arg(vm->name()),
                 tr("The VM stops at once, as when pulling the plug: the guest loses its "
                    "unsaved work."),
                 tr("&Force Off"))) {
@@ -708,7 +695,7 @@ void MainWindow::remove()
     if (!vm || vm->runner()->isActive()) {
         return;
     }
-    if (confirm(this, QMessageBox::Question, tr("Remove %1?").arg(vm->name()),
+    if (Widgets::confirm(this, QMessageBox::Question, tr("Remove %1?").arg(vm->name()),
                 tr("The folder of %1, disks included, goes to the trash, where you can "
                    "still restore it from.")
                     .arg(vm->name()),

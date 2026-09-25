@@ -23,6 +23,7 @@
 
 #include "core/paths.h"
 #include "core/qemubuilder.h"
+#include "ui/widgets.h"
 
 /* The build options of the fork's README */
 static const char kLean[] =
@@ -225,7 +226,10 @@ void QemuBuildDialog::updateState()
 void QemuBuildDialog::closeEvent(QCloseEvent *event)
 {
     if (m_builder->isRunning()) {
-        if (QMessageBox::question(this, windowTitle(), tr("Stop the build?")) != QMessageBox::Yes) {
+        if (!Widgets::confirm(this, QMessageBox::Question, tr("Stop the build?"),
+                              tr("The build stops where it is; building again goes on "
+                                 "from there."),
+                              tr("&Stop"))) {
             event->ignore();
             return;
         }

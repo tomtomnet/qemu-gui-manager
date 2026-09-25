@@ -2,6 +2,7 @@
 #pragma once
 
 #include <QGridLayout>
+#include <QMessageBox>
 #include <QString>
 
 class QLabel;
@@ -32,6 +33,10 @@ private:
 
 /* What the dialogs and pages are made of */
 namespace Widgets {
+
+/* Asks before a destructive @action, which Enter does not trigger */
+bool confirm(QWidget *parent, QMessageBox::Icon icon, const QString &title,
+             const QString &text, const QString &action);
 
 Form *form();
 /* A form label whose mnemonic focuses @buddy, for fields that are layouts */

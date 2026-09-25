@@ -774,15 +774,20 @@ void QemuInfoLoader::load()
         emit loaded();
         return;
     }
+    if (m_loading) {
+        return;
+    }
     if (loadCache()) {
         m_loaded = true;
         emit loaded();
         return;
     }
 
+    m_loading = true;
     auto *watcher = new QFutureWatcher<QemuInfo>(this);
     connect(watcher, &QFutureWatcher<QemuInfo>::finished, this, [this, watcher]() {
         const QemuInfo info = watcher->result();
+        m_loading = false;
         watcher->deleteLater();
         if (info.options.isEmpty()) {
             emit failed(tr("%1 printed no options").arg(m_binary));

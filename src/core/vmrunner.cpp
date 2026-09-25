@@ -122,7 +122,7 @@ struct VmRunner::Private
     QString sharePath(qsizetype i) const { return runDir() + QString("/fs%1.sock").arg(i); }
     QString qmpArg() const;
     QString logPath() const { return dir + "/qemu.log"; }
-    QString logTail() const;
+    QString logTail(bool qemuErrors = true) const;
     qint64 runningPid() const;
     void removeRuntimeFiles() const;
     bool launch(const QString &program, const QStringList &arguments, qint64 *pid,
@@ -157,11 +157,16 @@ QString VmRunner::Private::qmpArg() const
     return QString("unix:%1,server=on,wait=off").arg(OptionValue::escape(qmpPath()));
 }
 
-/* The last lines of the log, QEMU's errors if it printed some */
-QString VmRunner::Private::logTail() const
+/*
+ * The last lines of the log: with @qemuErrors, QEMU's error messages if it
+ * printed some ("qemu-system-x86_64: ...", "qemu: ..."), else its other
+ * lines rather than those of virtiofsd
+ */
+QString VmRunner::Private::logTail(bool qemuErrors) const
 {
+    static const QRegularExpression qemuMessage("^qemu[\\w.-]*:");
     QFile f(logPath());
-    QStringList lines, errors;
+    QStringList lines, errors, own;
 
     if (!f.open(QIODevice::ReadOnly)) {
         return {};
@@ -176,11 +181,17 @@ QString VmRunner::Private::logTail() const
             continue;
         }
         lines << t;
-        if (t.startsWith(prefix)) {
+        if (t.startsWith(prefix) || qemuMessage.match(t).hasMatch()) {
             errors << t;
         }
+        /* [2026-09-25T06:16:39Z WARN  virtiofsd::limits] ... */
+        if (!(t.startsWith('[') && t.contains(" virtiofsd"))) {
+            own << t;
+        }
     }
-    const QStringList &pick = errors.isEmpty() ? lines : errors;
+    const QStringList &pick = !qemuErrors ? lines
+                              : !errors.isEmpty() ? errors
+                              : !own.isEmpty() ? own : lines;
     return pick.mid(qMax<qsizetype>(0, pick.size() - 5)).join('\n');
 }
 
@@ -279,7 +290,7 @@ void VmRunner::Private::tick()
 
         for (qsizetype i = 0; i < helpers.size(); i++) {
             if (!alive(helpers[i].pid)) {
-                fail(VmRunner::tr("virtiofsd stopped:\n%1").arg(logTail()));
+                fail(VmRunner::tr("virtiofsd stopped:\n%1").arg(logTail(false)));
                 return;
             }
             listening &= QFileInfo::exists(sharePath(i));
@@ -288,7 +299,7 @@ void VmRunner::Private::tick()
             poll->stop();
             launchQemu();
         } else if (clock.elapsed() > kHelperTimeoutMs) {
-            fail(VmRunner::tr("virtiofsd did not open its socket:\n%1").arg(logTail()));
+            fail(VmRunner::tr("virtiofsd did not open its socket:\n%1").arg(logTail(false)));
         }
         break;
     }

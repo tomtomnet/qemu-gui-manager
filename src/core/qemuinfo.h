@@ -79,6 +79,7 @@ class QemuInfoLoader : public QObject
 public:
     explicit QemuInfoLoader(const QString &binary, QObject *parent = nullptr);
 
+    /* Emits loaded() or failed(), once for calls made while loading */
     void load();
     bool isLoaded() const { return m_loaded; }
     const QemuInfo &info() const { return m_info; }
@@ -102,4 +103,5 @@ private:
     QString m_binary;
     QemuInfo m_info;
     bool m_loaded = false;
+    bool m_loading = false;
 };
