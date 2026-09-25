@@ -38,6 +38,9 @@ fork whose SDL window has a menu, but it runs any `qemu-system-x86_64`.
   model and backend of the QEMU you run, searchable, with an Insert button.
   When QEMU runs from a build tree, it includes the full documentation from
   `qemu-options.hx`.
+- Snapshots, in a tab of their own: take one, go back to one, start the VM
+  from one or delete one. Taken while the VM runs, a snapshot keeps its
+  running state too.
 - Clone a VM, as virt-manager does: a new VM with the same settings and
   copies of its disks and firmware, instant on btrfs and XFS; CD/DVD images
   stay shared, and the network cards get new addresses.
@@ -155,6 +158,31 @@ by hand instead:
 or in `/etc/fstab`:
 
     public  /mnt/public  virtiofs  defaults,nofail  0  0
+
+## Snapshots
+
+The Snapshots tab works with QEMU's internal snapshots, kept inside the
+qcow2 files of the VM, as the snapshot button of the qemu-gui menu does:
+
+- While the VM runs, QEMU takes them with the running state (`savevm`,
+  which pauses the VM while it saves its memory) and goes back to them
+  (`loadvm`). A snapshot of the disks alone needs the VM stopped to go back
+  to.
+- While it is stopped, `qemu-img snapshot` takes them of the disks alone,
+  and goes back to them. Start From It starts the VM with `-loadvm`, where
+  a snapshot with the running state left it.
+- A snapshot of the disks costs nothing when taken: the qcow2 file only
+  grows as the guest writes over what the snapshot keeps, since the old
+  data stays for it. One with the running state adds the saved memory of
+  the VM to the file at once (the Running state column). Deleting a
+  snapshot frees its space for reuse inside the file.
+- They are not backups: they live in the same files as the VM, and go with
+  them. They help before an update or an experiment, which a snapshot can
+  undo.
+- Only qcow2 files can hold them. A snapshot of a running VM needs every
+  file it writes to in qcow2, UEFI variables included: new VMs get them in
+  qcow2 where the distribution's firmware comes so, as Fedora's
+  `OVMF_VARS_4M.qcow2` does. The tab says which file is in the way.
 
 ## PCI passthrough
 

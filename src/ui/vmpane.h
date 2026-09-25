@@ -16,13 +16,14 @@ class QStackedWidget;
 class QTabWidget;
 class QTimer;
 class SettingsPage;
+class SnapshotView;
 class Vm;
 class VmDetails;
 
 /*
  * The VM selected in the list, beside it, in tabs: its details, its
- * settings, with their pages listed down the side as in a dialog, and its
- * log.  The pages all edit a copy of the VM's arguments, which keeps their
+ * settings, with their pages listed down the side as in a dialog, its
+ * snapshots and its log.  The pages all edit a copy of the VM's arguments, which keeps their
  * changes from page to page until Apply saves them.
  */
 class VmPane : public QWidget
@@ -30,7 +31,7 @@ class VmPane : public QWidget
     Q_OBJECT
 
 public:
-    enum Tab { Details, Settings, Logs };
+    enum Tab { Details, Settings, Snapshots, Logs };
     enum Page {
         General, System, Display, Storage, SharedFolders, PciDevices, UsbDevices, Arguments,
     };
@@ -60,6 +61,10 @@ public:
     bool apply();
     void discard();
 
+signals:
+    /* Start From It, on the Snapshots tab */
+    void startFromSnapshot(const QString &name);
+
 private:
     void buildPages();
     void switchTo(int row);
@@ -80,6 +85,7 @@ private:
     QListWidget *m_list;
     QLabel *m_title;
     QStackedWidget *m_stack;
+    SnapshotView *m_snapshots;
     LogView *m_log;
     Banner *m_running;
     QPushButton *m_discard;

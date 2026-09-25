@@ -27,6 +27,7 @@
 #include "ui/icons.h"
 #include "ui/logview.h"
 #include "ui/settingspages.h"
+#include "ui/snapshotview.h"
 #include "ui/vmdetails.h"
 #include "ui/widgets.h"
 
@@ -56,7 +57,7 @@ public:
 VmPane::VmPane(QWidget *parent)
     : QWidget(parent), m_check(new QTimer(this)), m_tabs(new QTabWidget),
       m_details(new VmDetails), m_list(new QListWidget), m_title(new QLabel),
-      m_stack(new QStackedWidget), m_log(new LogView), m_running(new Banner(Banner::Information)),
+      m_stack(new QStackedWidget), m_snapshots(new SnapshotView), m_log(new LogView), m_running(new Banner(Banner::Information)),
       /* no mnemonic: the pages use D */
       m_discard(new QPushButton(Icons::themed({"edit-undo"}, QStyle::SP_DialogResetButton),
                                 tr("Discard"))),
@@ -77,6 +78,7 @@ VmPane::VmPane(QWidget *parent)
     m_tabs->setDocumentMode(true);
     m_tabs->addTab(m_details, tr("Details"));
     m_tabs->addTab(settings, tr("Settings"));
+    m_tabs->addTab(m_snapshots, tr("Snapshots"));
     m_tabs->addTab(m_log, tr("Logs"));
 
     /* the pages down the side, as the settings dialog had them, on the tab */
@@ -125,6 +127,7 @@ VmPane::VmPane(QWidget *parent)
     connect(m_list, &QListWidget::currentRowChanged, this, &VmPane::switchTo);
     connect(m_apply, &QPushButton::clicked, this, &VmPane::apply);
     connect(m_discard, &QPushButton::clicked, this, &VmPane::discard);
+    connect(m_snapshots, &SnapshotView::startRequested, this, &VmPane::startFromSnapshot);
     updateFooter();
 }
 
@@ -151,6 +154,7 @@ void VmPane::setVm(Vm *vm)
     }
     m_vm = vm;
     m_details->setVm(vm);
+    m_snapshots->setVm(vm);
     m_log->setPath(vm ? vm->runner()->logPath() : QString());
     if (vm) {
         connect(vm, &Vm::changed, this, &VmPane::vmChanged);
