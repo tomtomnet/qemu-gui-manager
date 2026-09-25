@@ -14,15 +14,11 @@
 #include "core/qmpclient.h"
 #include "core/vmrunner.h"
 
-/*
- * Runs the QEMU build next to this project, headless, under TCG: set
- * QGM_TEST_QEMU to use another one.
- */
+/* Runs $QGM_TEST_QEMU, else the qemu-system-x86_64 in PATH, headless */
 static QString testQemu()
 {
     const QString env = qEnvironmentVariable("QGM_TEST_QEMU");
-    return env.isEmpty() ? "/home/user/Documents/qemu-gui/qemu/build-host/qemu-system-x86_64"
-                         : env;
+    return env.isEmpty() ? QStandardPaths::findExecutable("qemu-system-x86_64") : env;
 }
 
 static const char kHeadless[] = "-machine q35\n-m 128\n-nodefaults\n-display none\n";
@@ -219,6 +215,25 @@ private slots:
         Paths::setQemuBinary(testQemu());
         QCOMPARE(failed.size(), 1);
         QCOMPARE(runner.state(), VmRunner::State::Stopped);
+    }
+
+    /* #qemu runs the VM with its own QEMU */
+    void ownQemu()
+    {
+        VmRunner runner(id, tmp.path());
+        QSignalSpy failed(&runner, &VmRunner::failed);
+
+        Paths::setQemuBinary(tmp.filePath("missing"));
+        runner.start(ArgsFile::parse("#qemu " + testQemu() + "\n" + kHeadless));
+        Paths::setQemuBinary(testQemu());
+        QTRY_COMPARE_WITH_TIMEOUT(runner.state(), VmRunner::State::Running, 20000);
+        runner.forceOff();
+        QTRY_COMPARE_WITH_TIMEOUT(runner.state(), VmRunner::State::Stopped, 15000);
+        QCOMPARE(failed.size(), 0);
+
+        runner.start(ArgsFile::parse("#qemu " + tmp.filePath("missing") + "\n" + kHeadless));
+        QCOMPARE(failed.size(), 1);
+        QVERIFY(failed[0][0].toString().contains("#qemu"));
     }
 
     void sharesNeedSharedMemory()

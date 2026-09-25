@@ -146,15 +146,23 @@ private slots:
 
     void diskImage()
     {
-        const QString qemu = "/home/user/Documents/qemu-gui/qemu/build-host/qemu-system-x86_64";
+        QString qemu = qEnvironmentVariable("QGM_TEST_QEMU");
         QTemporaryDir tmp;
         QString error;
 
-        if (!QFileInfo::exists(qemu)) {
-            QSKIP("no QEMU build");
+        if (qemu.isEmpty()) {
+            qemu = QStandardPaths::findExecutable("qemu-system-x86_64");
+        }
+        if (qemu.isEmpty()) {
+            QSKIP("no QEMU binary, set QGM_TEST_QEMU");
         }
         Paths::setQemuBinary(qemu);
-        QCOMPARE(Paths::qemuImg(), QFileInfo(qemu).dir().filePath("qemu-img"));
+        if (QFileInfo(QFileInfo(qemu).dir(), "qemu-img").isExecutable()) {
+            QCOMPARE(Paths::qemuImg(), QFileInfo(qemu).dir().filePath("qemu-img"));
+        }
+        if (Paths::qemuImg().isEmpty()) {
+            QSKIP("no qemu-img");
+        }
         QVERIFY2(createDiskImage(tmp.filePath("disk.qcow2"), 64LL << 20, &error),
                  qPrintable(error));
         QVERIFY(QFileInfo::exists(tmp.filePath("disk.qcow2")));

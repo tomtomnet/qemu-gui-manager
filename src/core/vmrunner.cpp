@@ -66,6 +66,13 @@ static void signalIfOurs(qint64 pid, const QString &marker, int sig)
     }
 }
 
+/* The QEMU of the VM's #qemu directive, else the one in the preferences */
+static QString qemuFor(const ArgsFile &args)
+{
+    const QString own = VmConfig::qemuBinary(args);
+    return own.isEmpty() ? Paths::qemuBinary() : own;
+}
+
 static QString shellQuote(const QStringList &args)
 {
     static const QRegularExpression plain("^[A-Za-z0-9_@%+=:,./-]+$");
@@ -162,7 +169,7 @@ QString VmRunner::Private::logTail() const
     if (f.size() > 16384) {
         f.seek(f.size() - 16384);
     }
-    const QString prefix = QFileInfo(Paths::qemuBinary()).fileName() + ':';
+    const QString prefix = QFileInfo(qemuFor(args)).fileName() + ':';
     for (const QString &line : QString::fromUtf8(f.readAll()).split('\n')) {
         const QString t = line.trimmed();
         if (t.isEmpty() || t.startsWith("qemu-gui-manager:")) {
@@ -467,7 +474,7 @@ QString VmRunner::logPath() const
 QStringList VmRunner::commandLine(const ArgsFile &args) const
 {
     const QList<VmConfig::Share> shares = VmConfig::shares(args);
-    QStringList command{Paths::qemuBinary()};
+    QStringList command{qemuFor(args)};
 
     command += args.argv();
     for (qsizetype i = 0; i < shares.size(); i++) {
@@ -484,7 +491,7 @@ QStringList VmRunner::commandLine(const ArgsFile &args) const
 
 void VmRunner::start(const ArgsFile &args)
 {
-    const QString qemu = Paths::qemuBinary();
+    const QString qemu = qemuFor(args);
     const QList<VmConfig::Share> shares = VmConfig::shares(args);
     QString virtiofsd;
 
@@ -502,7 +509,10 @@ void VmRunner::start(const ArgsFile &args)
     d->killStep = 0;
     d->args = args;
     if (qemu.isEmpty() || !QFileInfo(qemu).isExecutable()) {
-        d->fail(tr("QEMU was not found: set its path in the preferences"));
+        d->fail(VmConfig::qemuBinary(args).isEmpty()
+                    ? tr("QEMU was not found: set its path in the preferences")
+                    : tr("%1 was not found: it is the QEMU of this VM, from the #qemu line "
+                         "of its arguments").arg(qemu));
         return;
     }
     if (!shares.isEmpty()) {
