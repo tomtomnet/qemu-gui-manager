@@ -66,7 +66,10 @@ static QIcon vmIcon(VmRunner::State state)
     for (qreal dpr : {1.0, 2.0, 3.0}) {
         QPixmap pixmap = base.pixmap(QSize(32, 32), dpr);
         QPainter p(&pixmap);
-        const QRectF badge(17, 17, 15, 15);
+        /* in the corner, its outline inside the icon too */
+        const qreal outline = 1.5;
+        const QRectF badge(32 - 15 - outline / 2, 32 - 15 - outline / 2, 15, 15);
+        const QPointF c = badge.center();
         QColor color(0x3d, 0xae, 0xe9);
 
         if (state == VmRunner::State::Running) {
@@ -75,24 +78,24 @@ static QIcon vmIcon(VmRunner::State state)
             color = QColor(0xf6, 0x74, 0x00);
         }
         p.setRenderHint(QPainter::Antialiasing);
-        p.setPen(QPen(Qt::white, 1.5));
+        p.setPen(QPen(Qt::white, outline));
         p.setBrush(color);
         p.drawEllipse(badge);
         p.setPen(Qt::NoPen);
         p.setBrush(Qt::white);
         if (state == VmRunner::State::Paused) {
-            p.drawRect(QRectF(21.5, 21, 2.2, 7));
-            p.drawRect(QRectF(25.3, 21, 2.2, 7));
+            p.drawRect(QRectF(c.x() - 3.0, c.y() - 3.5, 2.2, 7));
+            p.drawRect(QRectF(c.x() + 0.8, c.y() - 3.5, 2.2, 7));
         } else if (state == VmRunner::State::Running) {
             QPainterPath play;
-            play.moveTo(22, 20.5);
-            play.lineTo(28.5, 24.5);
-            play.lineTo(22, 28.5);
+            play.moveTo(c + QPointF(-2.5, -4));
+            play.lineTo(c + QPointF(4, 0));
+            play.lineTo(c + QPointF(-2.5, 4));
             play.closeSubpath();
             p.drawPath(play);
         } else {
-            for (int i = 0; i < 3; i++) {
-                p.drawEllipse(QPointF(20.8 + i * 3.7, 24.5), 1.1, 1.1);
+            for (int i = -1; i <= 1; i++) {
+                p.drawEllipse(c + QPointF(i * 3.7, 0), 1.1, 1.1);
             }
         }
         p.end();
