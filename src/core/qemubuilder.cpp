@@ -66,7 +66,7 @@ QString QemuBuilder::defaultBranch()
 
 QStringList QemuBuilder::defaultConfigureArgs()
 {
-    return {"--target-list=x86_64-softmmu"};
+    return {"--target-list=" + Paths::hostArch() + "-softmmu"};
 }
 
 QString QemuBuilder::buildDir(const QString &sourceDir)
@@ -76,7 +76,7 @@ QString QemuBuilder::buildDir(const QString &sourceDir)
 
 QString QemuBuilder::binary(const QString &sourceDir)
 {
-    return buildDir(sourceDir) + "/qemu-system-x86_64";
+    return buildDir(sourceDir) + '/' + Paths::qemuSystemName();
 }
 
 QString QemuBuilder::defaultVirglDir()
@@ -200,7 +200,7 @@ void QemuBuilder::start(const Options &options)
                         m_configureArgs, build, true, env};
     }
     m_steps << Step{tr("Compiling"), "ninja",
-                    {"-j", QString::number(jobs), "qemu-system-x86_64", "qemu-img"},
+                    {"-j", QString::number(jobs), Paths::qemuSystemName(), "qemu-img"},
                     build, false, env};
     runNext();
 }

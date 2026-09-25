@@ -20,7 +20,11 @@ QString vmRuntimeDir(const QString &id);
 /* For QSettings(settingsPath(), QSettings::IniFormat) */
 QString settingsPath();
 
-/* The QEMU the VMs run with: the configured one, else qemu-system-x86_64 */
+/* QEMU's name for the architecture of this machine: x86_64, aarch64... */
+QString hostArch();
+/* qemu-system-x86_64 on x86-64, qemu-system-aarch64 on ARM */
+QString qemuSystemName();
+/* The QEMU the VMs run with: the configured one, else qemuSystemName() */
 QString qemuBinary();
 void setQemuBinary(const QString &path);
 /* qemu-img next to qemuBinary(), as in a build tree, else in PATH */

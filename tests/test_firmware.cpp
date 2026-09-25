@@ -32,7 +32,8 @@ private:
     void descriptor(const QString &dir, const QString &name, const QString &description,
                     const QString &device, const QStringList &machines,
                     const QStringList &features, const QString &code = {},
-                    const QString &vars = {}, const QString &format = "qcow2")
+                    const QString &vars = {}, const QString &format = "qcow2",
+                    const QString &arch = "x86_64")
     {
         QJsonObject mapping{{"device", device}};
         if (device == "flash") {
@@ -48,7 +49,7 @@ private:
             {"description", description},
             {"interface-types", QJsonArray{"uefi"}},
             {"mapping", mapping},
-            {"targets", QJsonArray{QJsonObject{{"architecture", "x86_64"},
+            {"targets", QJsonArray{QJsonObject{{"architecture", arch},
                                                {"machines", QJsonArray::fromStringList(machines)}}}},
             {"features", QJsonArray::fromStringList(features)},
         };
@@ -197,6 +198,32 @@ private slots:
         QVERIFY(FirmwareDb::apply(args, fw, vm.path()));
         QCOMPARE(args.toText(),
                  "-drive if=pflash,format=raw,unit=0,readonly=on,file=CODE,,x.fd\n");
+    }
+
+    /* Asahi and other ARM hosts: virt machines, no SMM */
+    void aarch64()
+    {
+        const QString code = touch("aavmf/QEMU_EFI.qcow2");
+        const QString vars = touch("aavmf/QEMU_VARS.qcow2");
+        const QStringList armDirs{tmp.filePath("arm")};
+        QTemporaryDir vm;
+        ArgsFile args = ArgsFile::parse("-machine virt,gic-version=max\n");
+
+        descriptor("arm", "60-edk2-aarch64.json", "AAVMF", "flash", {"virt-*"}, {}, code, vars,
+                   "qcow2", "aarch64");
+        descriptor("arm", "40-edk2-aarch64-sb.json", "AAVMF SB", "flash", {"virt-*"},
+                   {"enrolled-keys", "secure-boot"}, code, vars, "qcow2", "aarch64");
+        QCOMPARE(FirmwareDb::defaultMachine("aarch64"), "virt");
+        QCOMPARE(FirmwareDb::list(armDirs, "x86_64").size(), 0);
+        QCOMPARE(FirmwareDb::list(armDirs, "aarch64").size(), 2);
+        QVERIFY(!FirmwareDb::find(false, {}, dirs, "aarch64"));
+
+        const std::optional<Firmware> fw = FirmwareDb::find(true, {}, armDirs, "aarch64");
+        QVERIFY(fw && fw->description == "AAVMF SB");
+        QVERIFY(FirmwareDb::apply(args, *fw, vm.path()));
+        QCOMPARE(args.toText(), "-machine virt,gic-version=max\n"
+                                "-drive if=pflash,format=qcow2,unit=0,readonly=on,file=QEMU_EFI.qcow2\n"
+                                "-drive if=pflash,format=qcow2,unit=1,file=QEMU_VARS.qcow2\n");
     }
 
     /* an imported VM gets copies of its firmware, not of its disks */

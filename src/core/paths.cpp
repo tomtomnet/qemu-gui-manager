@@ -5,6 +5,7 @@
 #include <QFileInfo>
 #include <QSettings>
 #include <QStandardPaths>
+#include <QSysInfo>
 
 namespace Paths {
 
@@ -64,10 +65,28 @@ QString settingsPath()
            "/settings.conf";
 }
 
+QString hostArch()
+{
+    const QString arch = QSysInfo::currentCpuArchitecture();
+
+    if (arch == "arm64") {
+        return "aarch64";
+    }
+    if (arch.startsWith("power")) {
+        return arch == "power64" ? "ppc64" : "ppc";
+    }
+    return arch;
+}
+
+QString qemuSystemName()
+{
+    return "qemu-system-" + hostArch();
+}
+
 QString qemuBinary()
 {
     const QString configured = setting("qemu/binary");
-    return configured.isEmpty() ? QStandardPaths::findExecutable("qemu-system-x86_64")
+    return configured.isEmpty() ? QStandardPaths::findExecutable(qemuSystemName())
                                 : configured;
 }
 

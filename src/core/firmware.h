@@ -23,7 +23,7 @@ struct Firmware
     QString varsTemplate;           // mapping.nvram-template.filename, if any
     QString format;                 // raw or qcow2
     QString mode;                   // split, combined or stateless
-    QStringList machines;           // x86_64 targets, e.g. pc-q35-*
+    QStringList machines;           // for the architecture, e.g. pc-q35-*
     QStringList features;           // secure-boot, enrolled-keys, requires-smm...
 
     bool isUefi() const;
@@ -35,19 +35,22 @@ struct Firmware
 namespace FirmwareDb {
 
 /*
- * The x86_64 flash firmware in @dirs, by default /usr/share/qemu/firmware,
- * /etc/qemu/firmware and ~/.config/qemu/firmware: later directories
- * override files of the same name, and the result is in file name order,
- * which is the priority order.
+ * The flash firmware for @arch (by default Paths::hostArch()) in @dirs, by
+ * default /usr/share/qemu/firmware, /etc/qemu/firmware and
+ * ~/.config/qemu/firmware: later directories override files of the same
+ * name, and the result is in file name order, which is the priority order.
  */
-QList<Firmware> list(const QStringList &dirs = {});
-/* The first UEFI firmware for @machine with or without secure boot */
-std::optional<Firmware> find(bool secureBoot, const QString &machine = "pc-q35-10.0",
-                             const QStringList &dirs = {});
+QList<Firmware> list(const QStringList &dirs = {}, const QString &arch = {});
+/* The usual machine of @arch: q35 for x86_64, virt for aarch64 */
+QString defaultMachine(const QString &arch = {});
+/* The first UEFI firmware for @machine (by default the usual one) with or
+   without secure boot */
+std::optional<Firmware> find(bool secureBoot, const QString &machine = {},
+                             const QStringList &dirs = {}, const QString &arch = {});
 /*
  * Makes @fw the firmware of @args: replaces its pflash drives (and -bios)
- * with those of @fw, and for secure boot or SMM firmware sets smm=on and
- * the secure flash.  The firmware and its variable store template are
+ * with those of @fw, and for firmware that requires SMM (x86 secure boot)
+ * sets smm=on and the secure flash.  The firmware and its variable store template are
  * copied into @vmDir, unless copies are there already, and referenced
  * relatively (QEMU runs in the VM folder): the VM keeps its firmware
  * wherever its folder goes, to another distribution even, and the

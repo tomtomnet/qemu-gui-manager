@@ -12,6 +12,7 @@
 #include <QStandardPaths>
 
 #include "core/optionvalue.h"
+#include "core/paths.h"
 #include "core/vmconfig.h"
 
 bool Firmware::isUefi() const
@@ -48,8 +49,8 @@ static QStringList strings(const QJsonValue &array)
     return list;
 }
 
-/* The x86_64 flash firmware a descriptor describes */
-static std::optional<Firmware> parse(const QString &path)
+/* The flash firmware for @arch a descriptor describes */
+static std::optional<Firmware> parse(const QString &path, const QString &arch)
 {
     QFile f(path);
 
@@ -74,7 +75,7 @@ static std::optional<Firmware> parse(const QString &path)
         fw.varsTemplate = mapping["nvram-template"].toObject()["filename"].toString();
     }
     for (const QJsonValue &target : root["targets"].toArray()) {
-        if (target["architecture"].toString() == "x86_64") {
+        if (target["architecture"].toString() == arch) {
             fw.machines += strings(target["machines"]);
         }
     }
@@ -86,8 +87,9 @@ static std::optional<Firmware> parse(const QString &path)
     return fw;
 }
 
-QList<Firmware> list(const QStringList &dirs)
+QList<Firmware> list(const QStringList &dirs, const QString &arch)
 {
+    const QString target = arch.isEmpty() ? Paths::hostArch() : arch;
     QMap<QString, QFileInfo> files;
     QList<Firmware> out;
 
@@ -102,18 +104,26 @@ QList<Firmware> list(const QStringList &dirs)
         if (fi.size() == 0) {
             continue;
         }
-        if (std::optional<Firmware> fw = parse(fi.filePath())) {
+        if (std::optional<Firmware> fw = parse(fi.filePath(), target)) {
             out << *fw;
         }
     }
     return out;
 }
 
+QString defaultMachine(const QString &arch)
+{
+    const QString target = arch.isEmpty() ? Paths::hostArch() : arch;
+    return target == "aarch64" || target == "arm" ? "virt"
+           : target == "x86_64" || target == "i386" ? "q35" : QString();
+}
+
 static bool supports(const Firmware &fw, const QString &machine)
 {
     /* the aliases of the latest versioned machines */
     const QString name = machine == "q35" ? "pc-q35-latest"
-                         : machine == "pc" ? "pc-i440fx-latest" : machine;
+                         : machine == "pc" ? "pc-i440fx-latest"
+                         : machine == "virt" ? "virt-latest" : machine;
 
     if (name.isEmpty()) {
         return true;
@@ -127,10 +137,12 @@ static bool supports(const Firmware &fw, const QString &machine)
 }
 
 std::optional<Firmware> find(bool secureBoot, const QString &machine,
-                             const QStringList &dirs)
+                             const QStringList &dirs, const QString &arch)
 {
-    for (const Firmware &fw : list(dirs)) {
-        if (!fw.isUefi() || !supports(fw, machine)) {
+    const QString wanted = machine.isEmpty() ? defaultMachine(arch) : machine;
+
+    for (const Firmware &fw : list(dirs, arch)) {
+        if (!fw.isUefi() || !supports(fw, wanted)) {
             continue;
         }
         if (secureBoot ? fw.hasSecureBoot() : !fw.features.contains("secure-boot")) {
@@ -166,7 +178,8 @@ static bool copyFile(const QString &source, const QDir &dir, const QString &name
 
 bool apply(ArgsFile &args, const Firmware &fw, const QString &vmDir, QString *error)
 {
-    const bool secure = fw.requiresSmm() || fw.features.contains("secure-boot");
+    /* x86 secure boot: ARM has no SMM, nor this flash property */
+    const bool secure = fw.requiresSmm();
     const QString format = OptionValue::escape(fw.format);
     const QDir dir(vmDir);
     const QString code = QFileInfo(fw.code).fileName();
