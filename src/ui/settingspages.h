@@ -43,6 +43,8 @@ public:
     virtual void load(const ArgsFile &args) = 0;
     /* Only the settings the user changed, to keep the rest as written */
     virtual void save(ArgsFile &args) = 0;
+    /* The user changed something since load() */
+    virtual bool isModified() const = 0;
 };
 
 class GeneralPage : public SettingsPage
@@ -56,6 +58,7 @@ public:
     QIcon icon() const override;
     void load(const ArgsFile &args) override;
     void save(ArgsFile &args) override;
+    bool isModified() const override;
 
 private:
     QLineEdit *m_name;
@@ -73,6 +76,7 @@ public:
     QIcon icon() const override;
     void load(const ArgsFile &args) override;
     void save(ArgsFile &args) override;
+    bool isModified() const override;
 
 private:
     /* The QEMU chosen, empty for the default one */
@@ -119,6 +123,7 @@ public:
     QIcon icon() const override;
     void load(const ArgsFile &args) override;
     void save(ArgsFile &args) override;
+    bool isModified() const override;
 
 private:
     void fill();
@@ -174,6 +179,7 @@ public:
     QIcon icon() const override;
     void load(const ArgsFile &args) override;
     void save(ArgsFile &args) override;
+    bool isModified() const override;
 
 private:
     QStringList checked() const;
@@ -194,6 +200,7 @@ public:
     QIcon icon() const override;
     void load(const ArgsFile &args) override;
     void save(ArgsFile &args) override;
+    bool isModified() const override;
 
 private:
     QList<VmConfig::UsbId> checked() const;
@@ -215,6 +222,7 @@ public:
     QIcon icon() const override;
     void load(const ArgsFile &args) override;
     void save(ArgsFile &args) override;
+    bool isModified() const override;
 
 private:
     ArgsEditorPane *m_pane;

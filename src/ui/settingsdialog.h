@@ -9,6 +9,8 @@
 
 class Banner;
 class QListWidget;
+class QPushButton;
+class QTimer;
 class QStackedWidget;
 class SettingsPage;
 class Vm;
@@ -31,6 +33,8 @@ private:
     bool apply();
     void switchTo(int row);
     void updateRunning();
+    void updateApply();
+    void watchEdits(SettingsPage *page);
 
     QPointer<Vm> m_vm;
     ArgsFile m_args;
@@ -38,5 +42,7 @@ private:
     QListWidget *m_list;
     QStackedWidget *m_stack;
     Banner *m_running;
+    QPushButton *m_apply;
+    QTimer *m_check;
     int m_current = -1;
 };

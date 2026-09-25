@@ -79,6 +79,12 @@ void GeneralPage::save(ArgsFile &args)
     }
 }
 
+bool GeneralPage::isModified() const
+{
+    const QString name = m_name->text().trimmed();
+    return !name.isEmpty() && name != m_loaded;
+}
+
 /* System */
 
 SystemPage::SystemPage(QWidget *parent)
@@ -335,6 +341,15 @@ void SystemPage::load(const ArgsFile &args)
     }
     m_cpus->setEnabled(!m_topology->isChecked());
     m_cpuSlider->setEnabled(!m_topology->isChecked());
+    /* compare with what the page shows, e.g. 128 MiB for no -m, so that
+       an untouched page writes nothing */
+    m_loadedMemory = m_memory->value();
+    m_loadedCpus.count = m_cpus->value();
+    if (m_topology->isChecked()) {
+        m_loadedCpus.sockets = m_sockets->value();
+        m_loadedCpus.cores = m_cores->value();
+        m_loadedCpus.threads = m_threads->value();
+    }
     m_model->setCurrentText(m_loadedCpus.model);
     m_machine->setCurrentText(m_loadedMachine);
 
@@ -416,6 +431,23 @@ void SystemPage::save(ArgsFile &args)
         VmConfig::setQemuBinary(args, chosenQemu());
         m_loadedQemu = chosenQemu();
     }
+}
+
+bool SystemPage::isModified() const
+{
+    const QString machine = m_machine->currentText().trimmed();
+
+    if (m_memory->value() != m_loadedMemory || m_cpus->value() != m_loadedCpus.count ||
+        m_model->currentText().trimmed() != m_loadedCpus.model ||
+        (!machine.isEmpty() && machine != m_loadedMachine) ||
+        m_accel->currentData().toString() != m_loadedAccel || chosenQemu() != m_loadedQemu) {
+        return true;
+    }
+    if (!m_topology->isChecked()) {
+        return m_loadedCpus.sockets || m_loadedCpus.cores || m_loadedCpus.threads;
+    }
+    return m_sockets->value() != m_loadedCpus.sockets ||
+           m_cores->value() != m_loadedCpus.cores || m_threads->value() != m_loadedCpus.threads;
 }
 
 /* Shared folders */
@@ -543,6 +575,11 @@ void SharesPage::save(ArgsFile &args)
     }
     m_sharedMemory = VmConfig::hasSharedMemory(args);
     m_fixMemory = false;
+}
+
+bool SharesPage::isModified() const
+{
+    return !sameShares(m_shares, m_loaded) || m_fixMemory;
 }
 
 void SharesPage::fill()
@@ -884,6 +921,11 @@ void PciPage::save(ArgsFile &args)
     }
 }
 
+bool PciPage::isModified() const
+{
+    return checked() != m_loaded;
+}
+
 /* USB */
 
 UsbPage::UsbPage(QWidget *parent)
@@ -1019,6 +1061,11 @@ void UsbPage::save(ArgsFile &args)
     m_addController = false;
 }
 
+bool UsbPage::isModified() const
+{
+    return checked() != m_loaded || m_addController;
+}
+
 /* Arguments */
 
 ArgumentsPage::ArgumentsPage(QWidget *parent)
@@ -1066,4 +1113,9 @@ void ArgumentsPage::save(ArgsFile &args)
         args = ArgsFile::parse(text);
         m_loaded = text;
     }
+}
+
+bool ArgumentsPage::isModified() const
+{
+    return m_pane->editor()->toPlainText() != m_loaded;
 }
