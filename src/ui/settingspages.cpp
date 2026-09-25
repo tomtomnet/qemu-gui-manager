@@ -64,11 +64,6 @@ GeneralPage::GeneralPage(Vm *vm, QWidget *parent) : SettingsPage(parent), m_name
     layout->addStretch();
 }
 
-QIcon GeneralPage::icon() const
-{
-    return Icons::themed({"preferences-system", "configure"}, QStyle::SP_ComputerIcon);
-}
-
 void GeneralPage::load(const ArgsFile &args)
 {
     m_loaded = VmConfig::name(args);
@@ -250,11 +245,6 @@ void SystemPage::updateQemu()
         connect(docs, &QemuDocs::changed, this, &SystemPage::fillLists);
     }
     fillLists();
-}
-
-QIcon SystemPage::icon() const
-{
-    return Icons::themed({"cpu", "computer"}, QStyle::SP_ComputerIcon);
 }
 
 void SystemPage::fillLists()
@@ -682,12 +672,6 @@ DisplayPage::DisplayPage(QWidget *parent)
     connect(m_venus, &QCheckBox::toggled, this, &DisplayPage::update);
 }
 
-QIcon DisplayPage::icon() const
-{
-    return Icons::themed({"video-display", "preferences-desktop-display"},
-                         QStyle::SP_DesktopIcon);
-}
-
 /* The cards of @kind, VGA first but on ARM's virt */
 static QStringList cardsOf(VmConfig::Graphics::Kind kind, bool virt)
 {
@@ -886,11 +870,6 @@ StoragePage::StoragePage(const QString &vmDir, QWidget *parent)
             resize();
         }
     });
-}
-
-QIcon StoragePage::icon() const
-{
-    return Icons::themed({"drive-harddisk"}, QStyle::SP_DriveHDIcon);
 }
 
 void StoragePage::load(const ArgsFile &args)
@@ -1282,11 +1261,6 @@ SharesPage::SharesPage(QWidget *parent)
     connect(m_table, &QTableWidget::currentCellChanged, this, &SharesPage::updateHints);
 }
 
-QIcon SharesPage::icon() const
-{
-    return Icons::themed({"folder-network", "folder-remote"}, QStyle::SP_DirIcon);
-}
-
 void SharesPage::load(const ArgsFile &args)
 {
     m_shares = VmConfig::shares(args);
@@ -1592,12 +1566,6 @@ PciPage::PciPage(QWidget *parent)
     });
 }
 
-QIcon PciPage::icon() const
-{
-    return Icons::themed({"preferences-desktop-peripherals", "video-display"},
-                         QStyle::SP_DriveHDIcon);
-}
-
 void PciPage::load(const ArgsFile &args)
 {
     const QList<PciDevice> devices = HostDevices::pciDevices();
@@ -1733,12 +1701,6 @@ UsbPage::UsbPage(QWidget *parent)
     layout->addWidget(m_tree, 1);
 }
 
-QIcon UsbPage::icon() const
-{
-    return Icons::themed({"drive-removable-media-usb", "media-removable"},
-                         QStyle::SP_DriveFDIcon);
-}
-
 void UsbPage::load(const ArgsFile &args)
 {
     const QList<UsbDevice> devices = HostDevices::usbDevices();
@@ -1869,11 +1831,6 @@ ArgumentsPage::ArgumentsPage(const QString &vmDir, QWidget *parent)
                               "starting with # are comments. The other pages edit these "
                               "same lines. Ctrl+Space completes option and device names.")));
     layout->addWidget(splitter, 1);
-}
-
-QIcon ArgumentsPage::icon() const
-{
-    return Icons::themed({"utilities-terminal", "text-x-script"}, QStyle::SP_FileIcon);
 }
 
 void ArgumentsPage::load(const ArgsFile &args)

@@ -2,7 +2,6 @@
 #pragma once
 
 #include <QDialog>
-#include <QIcon>
 #include <QList>
 #include <QMap>
 #include <QTemporaryDir>
@@ -42,7 +41,6 @@ public:
     using QWidget::QWidget;
 
     virtual QString title() const = 0;
-    virtual QIcon icon() const = 0;
     virtual void load(const ArgsFile &args) = 0;
     /* Only the settings the user changed, to keep the rest as written */
     virtual void save(ArgsFile &args) = 0;
@@ -70,7 +68,6 @@ public:
     explicit GeneralPage(Vm *vm, QWidget *parent = nullptr);
 
     QString title() const override { return tr("General"); }
-    QIcon icon() const override;
     void load(const ArgsFile &args) override;
     void save(ArgsFile &args) override;
     bool isModified() const override;
@@ -88,7 +85,6 @@ public:
     explicit SystemPage(QWidget *parent = nullptr);
 
     QString title() const override { return tr("System"); }
-    QIcon icon() const override;
     void load(const ArgsFile &args) override;
     void save(ArgsFile &args) override;
     bool isModified() const override;
@@ -150,7 +146,6 @@ public:
     explicit DisplayPage(QWidget *parent = nullptr);
 
     QString title() const override { return tr("Display"); }
-    QIcon icon() const override;
     void load(const ArgsFile &args) override;
     void save(ArgsFile &args) override;
     bool isModified() const override;
@@ -183,7 +178,6 @@ public:
     explicit StoragePage(const QString &vmDir, QWidget *parent = nullptr);
 
     QString title() const override { return tr("Storage"); }
-    QIcon icon() const override;
     void load(const ArgsFile &args) override;
     void save(ArgsFile &args) override;
     bool isModified() const override;
@@ -226,7 +220,6 @@ public:
     explicit SharesPage(QWidget *parent = nullptr);
 
     QString title() const override { return tr("Shared Folders"); }
-    QIcon icon() const override;
     void load(const ArgsFile &args) override;
     void save(ArgsFile &args) override;
     bool isModified() const override;
@@ -285,7 +278,6 @@ public:
     explicit PciPage(QWidget *parent = nullptr);
 
     QString title() const override { return tr("PCI"); }
-    QIcon icon() const override;
     void load(const ArgsFile &args) override;
     void save(ArgsFile &args) override;
     bool isModified() const override;
@@ -306,7 +298,6 @@ public:
     explicit UsbPage(QWidget *parent = nullptr);
 
     QString title() const override { return tr("USB"); }
-    QIcon icon() const override;
     void load(const ArgsFile &args) override;
     void save(ArgsFile &args) override;
     bool isModified() const override;
@@ -328,7 +319,6 @@ public:
     explicit ArgumentsPage(const QString &vmDir, QWidget *parent = nullptr);
 
     QString title() const override { return tr("Arguments"); }
-    QIcon icon() const override;
     void load(const ArgsFile &args) override;
     void save(ArgsFile &args) override;
     bool isModified() const override;
