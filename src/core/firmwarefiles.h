@@ -64,4 +64,10 @@ bool reset(const File &file, const QString &qemuImg, QString *backup = nullptr,
 /* The qemu-img of the VM's own QEMU, else the one of the preferences */
 QString qemuImg(const ArgsFile &args);
 
+/*
+ * Whether a QEMU error says a file is in use: another QEMU holds its lock,
+ * e.g. the VM runs outside the manager.  Such a file is not damaged.
+ */
+bool inUse(const QString &error);
+
 }

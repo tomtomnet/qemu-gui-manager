@@ -111,6 +111,10 @@ QList<File> named(const Vm *vm, const QString &error)
 {
     QList<File> list;
 
+    /* a lock names the file too, but a file in use is not damaged */
+    if (FirmwareFiles::inUse(error)) {
+        return list;
+    }
     for (const File &f : files(vm)) {
         if (!f.templatePath.isEmpty() && error.contains(f.name())) {
             list << f;

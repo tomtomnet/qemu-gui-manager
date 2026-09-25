@@ -459,4 +459,14 @@ QString qemuImg(const ArgsFile &args)
     return Paths::qemuImg();
 }
 
+bool inUse(const QString &error)
+{
+    /* file-posix: 'Failed to get "write" lock', 'Failed to lock byte 100', and its hint */
+    static const QRegularExpression locked(
+        "Failed to get (shared )?\"[a-z ]+\" lock|Failed to lock byte|"
+        "Is another process using the image");
+
+    return locked.match(error).hasMatch();
+}
+
 }

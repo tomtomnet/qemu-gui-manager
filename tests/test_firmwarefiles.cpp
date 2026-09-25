@@ -430,6 +430,21 @@ private slots:
         QVERIFY(QProcess::execute(qemuImg, {"compare", "-q", ovmf("VARS.qcow2"), vars.path}) != 0);
     }
 
+    void inUseIsNotDamage()
+    {
+        /* what QEMU says when the VM already runs elsewhere */
+        QVERIFY(FirmwareFiles::inUse(
+            "qemu-system-x86_64: -drive if=pflash,format=qcow2,file=OVMF_VARS_4M.qcow2: "
+            "Failed to get \"write\" lock\nIs another process using the image "
+            "[OVMF_VARS_4M.qcow2]?"));
+        QVERIFY(FirmwareFiles::inUse("Failed to get shared \"write\" lock"));
+        QVERIFY(FirmwareFiles::inUse("Failed to lock byte 100"));
+        QVERIFY(!FirmwareFiles::inUse(
+            "qemu-system-x86_64: -drive if=pflash,format=qcow2,file=OVMF_VARS_4M.qcow2: "
+            "Image is not in qcow2 format"));
+        QVERIFY(!FirmwareFiles::inUse("Could not open 'OVMF_VARS_4M.qcow2': No such file"));
+    }
+
     void resetReplacesAnUnreadableFile()
     {
         if (qemuImg.isEmpty()) {
