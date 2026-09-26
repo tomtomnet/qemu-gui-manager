@@ -16,15 +16,23 @@
 static const char kStamp[] = "/qgm-configure-args";
 
 /*
- * sh -c SCRIPT sh DIR REF PATCH...: checks out REF, or else the newest of
- * main and the last releases that all the patches apply to, then applies
- * them; if none takes them, main without them.  ../patched records the
- * commit and the patches, to leave the source alone when they are those
- * of the last build: rewriting the patched files makes ninja rebuild.
+ * sh -c SCRIPT sh DIR REF EXTRA PATCH...: checks out REF, or else the newest
+ * of main and the last releases that all the patches apply to, then applies
+ * them; if none takes them, main without them.  EXTRA is a folder whose
+ * *.patch files come after the PATCHes, if it exists: those the QEMU branch
+ * asks for.  ../patched records the commit and the patches, to leave the
+ * source alone when they are those of the last build: rewriting the patched
+ * files makes ninja rebuild.
  */
 static const char kApplyPatches[] = R"sh(cd "$1" || exit 1
 want=$2
-shift 2
+extra=$3
+shift 3
+if [ -d "$extra" ]; then
+    for p in "$extra"/*.patch; do
+        [ -f "$p" ] && set -- "$@" "$p"
+    done
+fi
 stamp=../patched
 hashes=$(cat "$@" </dev/null | sha256sum | cut -d' ' -f1)
 tmp=$(mktemp -d) || exit 1
@@ -149,6 +157,32 @@ QString QemuBuilder::buildDir(const QString &sourceDir)
     return sourceDir + "/build-qgm";
 }
 
+QString QemuBuilder::builtBranch(const QString &sourceDir)
+{
+    QFile stamp(buildDir(sourceDir) + "/qgm-built-branch");
+
+    return stamp.open(QIODevice::ReadOnly) ? QString::fromUtf8(stamp.readAll()).trimmed()
+                                           : QString();
+}
+
+QString QemuBuilder::branchVirglPatches(const QString &sourceDir)
+{
+    return sourceDir + "/contrib/qemu-gui/virglrenderer";
+}
+
+QStringList QemuBuilder::parseHeads(const QByteArray &lsRemote)
+{
+    QStringList heads;
+
+    for (const QByteArray &line : lsRemote.split('\n')) {
+        const qsizetype at = line.indexOf("\trefs/heads/");
+        if (at > 0) {
+            heads << QString::fromUtf8(line.mid(at + 12)).trimmed();
+        }
+    }
+    return heads;
+}
+
 QString QemuBuilder::builtCommit(const QString &sourceDir)
 {
     QFile stamp(buildDir(sourceDir) + "/qgm-built-commit");
@@ -264,8 +298,6 @@ void QemuBuilder::start(const Options &options)
 {
     const QString build = buildDir(options.sourceDir);
     const int jobs = options.jobs > 0 ? options.jobs : defaultJobs();
-    QFile stamp(build + kStamp);
-    QString configured;
     QStringList env;
 
     if (isRunning()) {
@@ -276,17 +308,7 @@ void QemuBuilder::start(const Options &options)
     m_steps.clear();
     m_cancelled = false;
 
-    if (options.virgl.enabled) {
-        const QString lib = virglLibDir(options.virgl.dir);
-        const QString pkgConfigPath = qEnvironmentVariable("PKG_CONFIG_PATH");
-
-        addVirglSteps(options.virgl, jobs);
-        /* QEMU builds against it, and loads it from there */
-        env << "PKG_CONFIG_PATH=" + lib + "/pkgconfig" +
-                   (pkgConfigPath.isEmpty() ? QString() : ':' + pkgConfigPath);
-        m_configureArgs << "--extra-ldflags=-Wl,-rpath," + lib;
-    }
-
+    /* the branch first: it may ask for virglrenderer patches of its own */
     if (!QFileInfo::exists(options.sourceDir + "/.git")) {
         m_steps << Step{tr("Downloading QEMU"), "git",
                         {"clone", "--depth", "1", "--branch", options.branch, options.url,
@@ -298,21 +320,52 @@ void QemuBuilder::start(const Options &options)
         m_steps << Step{tr("Updating the sources"), "git", {"reset", "--hard", "FETCH_HEAD"},
                         options.sourceDir};
     }
-    if (stamp.open(QIODevice::ReadOnly)) {
-        configured = QString::fromUtf8(stamp.readAll());
+
+    if (options.virgl.enabled) {
+        const QString lib = virglLibDir(options.virgl.dir);
+        const QString pkgConfigPath = qEnvironmentVariable("PKG_CONFIG_PATH");
+
+        addVirglSteps(options.virgl, jobs, branchVirglPatches(options.sourceDir));
+        /* QEMU builds against it, and loads it from there */
+        env << "PKG_CONFIG_PATH=" + lib + "/pkgconfig" +
+                   (pkgConfigPath.isEmpty() ? QString() : ':' + pkgConfigPath);
+        m_configureArgs << "--extra-ldflags=-Wl,-rpath," + lib;
     }
-    if (!QFileInfo::exists(build + "/build.ninja") ||
-        configured != m_configureArgs.join('\n')) {
-        m_steps << Step{tr("Configuring"), options.sourceDir + "/configure",
-                        m_configureArgs, build, true, env};
-    }
+
+    Step configure{tr("Configuring"), options.sourceDir + "/configure", m_configureArgs, build,
+                   true, env};
+    /* decided when it comes: virglrenderer's patches, applied just before, count */
+    configure.skip = [this, build]() {
+        QFile stamp(build + kStamp);
+        return QFileInfo::exists(build + "/build.ninja") && stamp.open(QIODevice::ReadOnly) &&
+               QString::fromUtf8(stamp.readAll()) == configureStamp();
+    };
+    m_steps << configure;
     m_steps << Step{tr("Compiling"), "ninja",
                     {"-j", QString::number(jobs), Paths::qemuSystemName(), "qemu-img"},
                     build, false, env, {}, binary(options.sourceDir)};
     runNext();
 }
 
-void QemuBuilder::addVirglSteps(const Virgl &virgl, int jobs)
+/*
+ * What the build tree is configured for: the options, and the patches of
+ * the virglrenderer they build against, which decide what configure finds
+ * in it (virgl_renderer_resource_set_guest_dmabuf(), say)
+ */
+QString QemuBuilder::configureStamp() const
+{
+    QString stamp = m_configureArgs.join('\n');
+
+    if (m_options.virgl.enabled) {
+        QFile patched(m_options.virgl.dir + "/patched");
+        if (patched.open(QIODevice::ReadOnly)) {
+            stamp += "\nvirglrenderer " + QString::fromUtf8(patched.readAll()).trimmed();
+        }
+    }
+    return stamp;
+}
+
+void QemuBuilder::addVirglSteps(const Virgl &virgl, int jobs, const QString &branchPatches)
 {
     const QString src = virgl.dir + "/src";
     const QString build = virgl.dir + "/build";
@@ -353,9 +406,11 @@ void QemuBuilder::addVirglSteps(const Virgl &virgl, int jobs)
                          "--output", patches.last(), patch}, patchDir};
     }
     m_steps << Step{tr("Patching virglrenderer"), "sh",
-                    QStringList{"-c", kApplyPatches, "sh", src, virgl.ref} + patches, src,
-                    false, {},
-                    "git apply " + patches.join(' ') + "  # on " +
+                    QStringList{"-c", kApplyPatches, "sh", src, virgl.ref, branchPatches} +
+                        patches,
+                    src, false, {},
+                    "git apply " + patches.join(' ') + " [" + branchPatches +
+                        "/*.patch]  # on " +
                         (virgl.ref.isEmpty() ? "main, else the newest release taking them"
                                              : virgl.ref)};
 
@@ -388,11 +443,20 @@ void QemuBuilder::runNext()
         if (stamp.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
             stamp.write(UpdateCheck::checkoutCommit(m_options.sourceDir).toLatin1() + '\n');
         }
+        QFile branch(buildDir(m_options.sourceDir) + "/qgm-built-branch");
+        if (branch.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            branch.write(m_options.branch.toUtf8() + '\n');
+        }
         emit finished({});
         return;
     }
 
     const Step step = m_steps.first();
+    if (step.skip && step.skip()) {
+        m_steps.removeFirst();
+        runNext();
+        return;
+    }
     if (!step.dir.isEmpty()) {
         QDir().mkpath(step.dir);
     }
@@ -445,7 +509,7 @@ void QemuBuilder::runNext()
         if (step.configure) {
             QFile stamp(buildDir(m_options.sourceDir) + kStamp);
             if (stamp.open(QIODevice::WriteOnly)) {
-                stamp.write(m_configureArgs.join('\n').toUtf8());
+                stamp.write(configureStamp().toUtf8());
             }
         }
         m_steps.removeFirst();

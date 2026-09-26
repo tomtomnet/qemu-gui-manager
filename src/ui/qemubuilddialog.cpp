@@ -31,6 +31,13 @@ static QString featuresUrl()
 
 static const char kTargetsUrl[] = "https://www.qemu.org/docs/master/system/targets.html";
 
+/* What a branch of the fork is: its README says */
+static QString readmeUrl(const QString &branch)
+{
+    return QString(QemuBuilder::defaultUrl()).chopped(4) + "/blob/" + branch +
+           "/.github/README.md";
+}
+
 QemuBuildDialog::QemuBuildDialog(QWidget *parent)
     : QDialog(parent), m_builder(new QemuBuilder(this))
 {
@@ -48,6 +55,17 @@ QemuBuildDialog::QemuBuildDialog(QWidget *parent)
             .arg(QString(QemuBuilder::defaultUrl()).chopped(4), Paths::hostArch()));
     intro->setToolTip(tr("Downloaded into %1").arg(QemuBuilder::defaultSourceDir()));
     layout->addWidget(intro);
+
+    /* master, or an experiment of the fork's */
+    m_branch = new QComboBox;
+    /* the list comes later, and wider */
+    m_branch->setSizeAdjustPolicy(QComboBox::AdjustToContents);
+    m_branchNote = Widgets::hint();
+    form->addRow(tr("B&ranch:"), m_branch);
+    form->addRow(QString(), m_branchNote);
+    setBranches({}, settings.value("build/branch", QemuBuilder::defaultBranch()).toString());
+    connect(m_branch, &QComboBox::currentIndexChanged, this, &QemuBuildDialog::updateBranchNote);
+    listBranches();
 
     /*
      * The host's target alone, with the features configure finds: the
@@ -151,6 +169,66 @@ QemuBuildDialog::QemuBuildDialog(QWidget *parent)
     resize(760, 620);
 }
 
+void QemuBuildDialog::listBranches()
+{
+    auto *git = new QProcess(this);
+    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+
+    env.insert("GIT_TERMINAL_PROMPT", "0");
+    git->setProcessEnvironment(env);
+    connect(git, &QProcess::finished, this, [this, git](int code) {
+        const QStringList heads = QemuBuilder::parseHeads(git->readAllStandardOutput());
+        git->deleteLater();
+        /* offline: master and the chosen one stay */
+        if (code == 0 && !heads.isEmpty()) {
+            setBranches(heads, branch());
+        }
+    });
+    connect(git, &QProcess::errorOccurred, this, [git](QProcess::ProcessError error) {
+        if (error == QProcess::FailedToStart) {
+            git->deleteLater();
+        }
+    });
+    git->start("git", {"ls-remote", "--heads", QemuBuilder::defaultUrl()});
+}
+
+void QemuBuildDialog::setBranches(QStringList names, const QString &chosen)
+{
+    const QString master = QemuBuilder::defaultBranch();
+
+    names.removeAll(master);
+    names.sort();
+    names.prepend(master);
+    if (!chosen.isEmpty() && !names.contains(chosen)) {
+        names << chosen;
+    }
+    m_branch->blockSignals(true);
+    m_branch->clear();
+    for (const QString &name : std::as_const(names)) {
+        m_branch->addItem(name == master ? name : tr("%1 (experimental)").arg(name), name);
+    }
+    m_branch->setCurrentIndex(qMax(0, m_branch->findData(chosen)));
+    m_branch->blockSignals(false);
+    updateBranchNote();
+}
+
+QString QemuBuildDialog::branch() const
+{
+    return m_branch->currentData().toString();
+}
+
+void QemuBuildDialog::updateBranchNote()
+{
+    const bool experiment = branch() != QemuBuilder::defaultBranch();
+
+    m_branchNote->setText(
+        experiment ? tr("An experiment, not for everyday use yet: see <a href=\"%1\">what it "
+                        "changes and needs</a>. Building master again goes back.")
+                         .arg(readmeUrl(branch()))
+                   : QString());
+    m_branchNote->setVisible(experiment);
+}
+
 void QemuBuildDialog::updateVirglStatus()
 {
     const QString lib =
@@ -165,12 +243,13 @@ void QemuBuildDialog::build()
     QSettings settings(Paths::settingsPath(), QSettings::IniFormat);
     QemuBuilder::Options options;
 
+    settings.setValue("build/branch", branch());
     settings.setValue("build/configure", m_configure->text().simplified());
     settings.setValue("build/virgl", m_virgl->isChecked());
 
     options.sourceDir = QemuBuilder::defaultSourceDir();
     options.url = QemuBuilder::defaultUrl();
-    options.branch = QemuBuilder::defaultBranch();
+    options.branch = branch();
     options.configureArgs = QProcess::splitCommand(m_configure->text());
     if (m_virgl->isChecked()) {
         options.virgl = QemuBuilder::defaultVirgl();
@@ -206,6 +285,7 @@ void QemuBuildDialog::updateState()
     const bool running = m_builder->isRunning();
     const QString binary = QemuBuilder::binary(QemuBuilder::defaultSourceDir());
 
+    m_branch->setEnabled(!running);
     m_preset->setEnabled(!running);
     m_virgl->setEnabled(!running);
     /* editable for custom options only */

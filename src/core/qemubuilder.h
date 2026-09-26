@@ -2,6 +2,7 @@
 #pragma once
 
 #include <QDateTime>
+#include <functional>
 #include <QObject>
 #include <QStringList>
 
@@ -67,6 +68,15 @@ public:
     static QString binary(const QString &sourceDir);
     /* The commit of @sourceDir the last build that ended well built; empty if none */
     static QString builtCommit(const QString &sourceDir);
+    /* Its branch; empty if built before the manager recorded it */
+    static QString builtBranch(const QString &sourceDir);
+    /*
+     * The folder of a QEMU branch whose *.patch files its virglrenderer
+     * needs, applied after the virgl patches: contrib/qemu-gui/virglrenderer
+     */
+    static QString branchVirglPatches(const QString &sourceDir);
+    /* The branch names of `git ls-remote --heads` */
+    static QStringList parseHeads(const QByteArray &lsRemote);
 
     static QString defaultVirglDir();
     static QString defaultVirglUrl();
@@ -115,9 +125,11 @@ private:
         QStringList env = {};       // NAME=value
         QString shown = {};         // for the log, if not the program and args
         QString product = {};       // a file it makes: unchanged, it had nothing to do
+        std::function<bool()> skip = {};    // asked when its turn comes
     };
 
-    void addVirglSteps(const Virgl &virgl, int jobs);
+    void addVirglSteps(const Virgl &virgl, int jobs, const QString &branchPatches);
+    QString configureStamp() const;
     void runNext();
     void parseProgress(const QString &text);
 

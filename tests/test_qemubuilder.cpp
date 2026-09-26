@@ -356,6 +356,83 @@ private slots:
         QVERIFY2(!log.contains("git checkout -q -f --detach"), qPrintable(log));
     }
 
+    /* The branches `git ls-remote --heads` lists */
+    void parsesHeads()
+    {
+        QCOMPARE(QemuBuilder::parseHeads("10d2000aa\trefs/heads/master\n"
+                                         "352fd8dbb\trefs/heads/zero-copy\n"),
+                 QStringList({"master", "zero-copy"}));
+        QVERIFY(QemuBuilder::parseHeads("fatal: unable to access 'https://...'\n").isEmpty());
+    }
+
+    /*
+     * A branch whose contrib/qemu-gui/virglrenderer asks for a patch more:
+     * virglrenderer gets it, and QEMU is configured again against it; master
+     * again goes back to the patches of the manager alone
+     */
+    void virglPatchesOfTheBranch()
+    {
+        if (!haveVirglTools()) {
+            QSKIP("needs meson, cc, pkg-config and curl");
+        }
+        const QString virglRemote = m_tmp.filePath("virgl-remote5");
+        const QString qemuRemote = m_tmp.filePath("qemu-remote5");
+        const QString patch = m_tmp.filePath("xe5.patch");
+
+        this->virglRemote(virglRemote, patch);
+        this->qemuRemote(qemuRemote);
+        git(qemuRemote, {"checkout", "-q", "-b", "exp"});
+        QVERIFY(write(qemuRemote + "/contrib/qemu-gui/virglrenderer/0001-exp.patch",
+                      "diff --git a/exp.txt b/exp.txt\nnew file mode 100644\n"
+                      "--- /dev/null\n+++ b/exp.txt\n@@ -0,0 +1 @@\n+exp\n"));
+        git(qemuRemote, {"add", "."});
+        git(qemuRemote, {"commit", "-q", "-m", "exp"});
+        git(qemuRemote, {"checkout", "-q", "master"});
+
+        const QString src = m_tmp.filePath("qemu-src5");
+        QemuBuilder::Options o{src, "file://" + qemuRemote, "master", true,
+                               QemuBuilder::defaultConfigureArgs(), {}, 2};
+        o.virgl.enabled = true;
+        o.virgl.dir = m_tmp.filePath("virgl5");
+        o.virgl.url = "file://" + virglRemote;
+        o.virgl.patches = {"file://" + patch};
+        o.virgl.renderers = {"xe-experimental"};
+        const QString configure = "$ " + src + "/configure ";
+        const QString exp = o.virgl.dir + "/src/exp.txt";
+        QemuBuilder b;
+
+        QSignalSpy first(&b, &QemuBuilder::output);
+        QCOMPARE(build(b, o), "");
+        QVERIFY2(log(first).contains("virglrenderer 1.3.0, with 1 patch(es)"),
+                 qPrintable(log(first)));
+        QCOMPARE(QemuBuilder::builtBranch(src), QString("master"));
+
+        o.branch = "exp";
+        QSignalSpy branch(&b, &QemuBuilder::output);
+        const QString error = build(b, o);
+        QVERIFY2(error.isEmpty(), qPrintable(error + "\n" + log(branch)));
+        QVERIFY2(log(branch).contains("virglrenderer 1.3.0, with 2 patch(es)"),
+                 qPrintable(log(branch)));
+        QVERIFY(QFileInfo::exists(exp));
+        QVERIFY2(log(branch).contains(configure), qPrintable(log(branch)));
+        QCOMPARE(QemuBuilder::builtBranch(src), QString("exp"));
+
+        /* the same: nothing to patch or configure */
+        QSignalSpy again(&b, &QemuBuilder::output);
+        QCOMPARE(build(b, o), "");
+        QVERIFY2(log(again).contains("virglrenderer 1.3.0, patched already"),
+                 qPrintable(log(again)));
+        QVERIFY2(!log(again).contains(configure), qPrintable(log(again)));
+
+        o.branch = "master";
+        QSignalSpy back(&b, &QemuBuilder::output);
+        QCOMPARE(build(b, o), "");
+        QVERIFY2(log(back).contains("virglrenderer 1.3.0, with 1 patch(es)"), qPrintable(log(back)));
+        QVERIFY(!QFileInfo::exists(exp));
+        QVERIFY2(log(back).contains(configure), qPrintable(log(back)));
+        QCOMPARE(QemuBuilder::builtBranch(src), QString("master"));
+    }
+
     /* Ours is in the manager, next to cmspam's */
     void defaultPatches()
     {

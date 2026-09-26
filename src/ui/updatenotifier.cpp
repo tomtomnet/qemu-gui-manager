@@ -39,6 +39,14 @@ static QString newCommits(int count)
                       : UpdateNotifier::tr("%1 new commits").arg(count);
 }
 
+/* "qemu-gui (zero-copy)" when built from an experiment of the fork */
+static QString shownName(const UpdateCheck::Project &p)
+{
+    return p.name == "qemu-gui" && !p.branch.isEmpty() && p.branch != QemuBuilder::defaultBranch()
+               ? QString("%1 (%2)").arg(p.name, p.branch)
+               : p.name;
+}
+
 static QSettings settings()
 {
     return QSettings(Paths::settingsPath(), QSettings::IniFormat);
@@ -93,10 +101,12 @@ QList<UpdateCheck::Project> UpdateNotifier::projects()
         list << UpdateCheck::Project{"qemu-gui-manager", "tomtomnet/qemu-gui-manager", "main",
                                      QGM_COMMIT};
     }
-    /* File > Build QEMU built it */
+    /* File > Build QEMU built it, from its branch */
     if (!qemu.isEmpty()) {
+        const QString branch = QemuBuilder::builtBranch(source);
         list << UpdateCheck::Project{"qemu-gui", "tomtomnet/qemu-gui",
-                                     QemuBuilder::defaultBranch(), qemu};
+                                     branch.isEmpty() ? QemuBuilder::defaultBranch() : branch,
+                                     qemu};
     }
     return list;
 }
@@ -221,7 +231,7 @@ void UpdateNotifier::updateButton()
 
     for (const UpdateCheck::Result &r : std::as_const(m_results)) {
         if (r.newCommits > 0) {
-            news << r.project.name + ": " + newCommits(r.newCommits);
+            news << shownName(r.project) + ": " + newCommits(r.newCommits);
         }
     }
     m_button->setToolTip(news.join('\n'));
@@ -240,7 +250,7 @@ void UpdateNotifier::showResults()
     QString text;
 
     for (const UpdateCheck::Result &r : std::as_const(m_results)) {
-        const QString name = "<b>" + r.project.name.toHtmlEscaped() + "</b>";
+        const QString name = "<b>" + shownName(r.project).toHtmlEscaped() + "</b>";
         if (r.newCommits < 0) {
             text += "<p>" + tr("%1: could not check (%2).").arg(name, r.error.toHtmlEscaped()) +
                     "</p>";

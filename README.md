@@ -102,6 +102,12 @@ QEMU of your VMs. Building again updates it first. It needs QEMU's build
 dependencies: `sudo dnf builddep qemu`. To run another QEMU, choose it in
 the preferences, or for one VM with a `#qemu` line.
 
+**Branch** chooses what to build: `master`, or one of the fork's
+experimental branches, listed from GitHub. Each experiment's README says what
+it changes and needs, and building `master` again goes back. A branch that
+needs changes to virglrenderer carries them as patches in
+`contrib/qemu-gui/virglrenderer/`, which the build applies after its own.
+
 Tick **DRM native context** to also build a virglrenderer with the
 native context renderer of every GPU that has one. The guest's GPU driver
 then talks to the host GPU's own driver, for 3D acceleration close to the

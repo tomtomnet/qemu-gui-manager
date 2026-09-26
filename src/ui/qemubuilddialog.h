@@ -38,8 +38,15 @@ private:
     void finished(const QString &error);
     void updateState();
     void updateVirglStatus();
+    /* The fork's branches, from GitHub; master and the chosen one until then */
+    void listBranches();
+    void setBranches(QStringList names, const QString &chosen);
+    QString branch() const;
+    void updateBranchNote();
 
     QemuBuilder *m_builder;
+    QComboBox *m_branch;
+    QLabel *m_branchNote;
     QComboBox *m_preset;
     QLineEdit *m_configure;
     QCheckBox *m_virgl;
