@@ -32,6 +32,8 @@ qt_add_library(qgm_core STATIC
     src/core/optionvalue.h
     src/core/paths.cpp
     src/core/paths.h
+    src/core/perfstats.cpp
+    src/core/perfstats.h
     src/core/qemubuilder.cpp
     src/core/qemubuilder.h
     src/core/qemuinfo.cpp
@@ -85,6 +87,8 @@ qt_add_executable(qemu-gui-manager
     src/ui/memorymonitor.h
     src/ui/newvmdialog.cpp
     src/ui/newvmdialog.h
+    src/ui/perfmonitor.cpp
+    src/ui/perfmonitor.h
     src/ui/preferencesdialog.cpp
     src/ui/preferencesdialog.h
     src/ui/qemubuilddialog.cpp
@@ -165,6 +169,7 @@ if(BUILD_TESTING)
             hostmemory
             importer
             optionvalue
+            perfstats
             qemubuilder
             qemuinfo
             qmpclient

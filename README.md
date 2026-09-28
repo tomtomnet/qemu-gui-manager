@@ -46,6 +46,9 @@ fork whose SDL window has a menu, but it runs any `qemu-system-x86_64`.
   get new addresses.
 - Import a launch script: the manager takes the QEMU command out of it.
 - A different QEMU build per VM, if one needs it.
+- How smoothly the selected VM runs, in the status bar while it runs:
+  frames on screen and their latency, input latency, and whether QEMU's
+  main loop waits for a CPU. See [Performance](#performance).
 - An Updates button in the status bar when qemu-gui-manager, or the qemu-gui
   QEMU that File > Build QEMU builds, has new commits on GitHub.
 
@@ -266,6 +269,32 @@ To give a device access for good, add a udev rule:
 
     # /etc/udev/rules.d/70-qemu-usb.rules
     SUBSYSTEM=="usb", ATTR{idVendor}=="046d", ATTR{idProduct}=="c52b", TAG+="uaccess"
+
+## Performance
+
+While the selected VM runs, the status bar shows how smoothly it goes, for
+example `240 fps · frame 6.1 ms · input 11 ms · main loop wait 0.4 %`. The
+manager asks QEMU twice a second; the tooltip has the details.
+
+- **fps**: guest frames that reached the screen per second, over the last
+  second. **frame**: the median time from QEMU receiving a frame from the
+  guest to the compositor showing it (Wayland); on X11 it ends when QEMU
+  hands the frame to the window system, and says `(to swap)`.
+  **input**: the median time from a key press or click in the VM window to
+  the guest's answer on screen, over the last 10 seconds; only measured when
+  the guest had drawn nothing just before, so it is there after you type or
+  click on a quiet desktop, and not while a game or a video plays.
+  These need the SDL display of a qemu-gui QEMU with frame statistics (the
+  `perf-stats` branch, QMP `x-query-display-stats`).
+- **main loop wait**: the share of the time QEMU's main loop was ready to run
+  but waited for a CPU, from `/proc/PID/task/TID/schedstat`. The main loop
+  draws the frames and runs the emulated devices, so when the host is busy
+  and this grows, the VM stutters. The tooltip also has the CPU use of the
+  main loop, the vCPUs and QEMU's other threads, and how long the vCPUs
+  waited.
+- **KVM**, in the tooltip, from QMP `query-stats`: VM exits per second (each
+  costs about 4 µs on a Ryzen host with its branch predictor flushed), halt
+  exits, exits for emulated devices, and how often halt polling ended a halt.
 
 ## Files
 

@@ -39,6 +39,7 @@
 #include "ui/importdialog.h"
 #include "ui/memorymonitor.h"
 #include "ui/newvmdialog.h"
+#include "ui/perfmonitor.h"
 #include "ui/preferencesdialog.h"
 #include "ui/qemubuilddialog.h"
 #include "ui/qemudocs.h"
@@ -187,7 +188,7 @@ public:
 MainWindow::MainWindow(VmStore *store, QWidget *parent)
     : QMainWindow(parent), m_store(store), m_list(new QListWidget),
       m_right(new QStackedWidget), m_pane(new VmPane), m_details(m_pane->details()),
-      m_splitter(new QSplitter), m_qemuStatus(new QLabel)
+      m_splitter(new QSplitter), m_qemuStatus(new QLabel), m_perf(new PerfMonitor)
 {
     auto *welcome = new QWidget;
     auto *welcomeLayout = new QVBoxLayout(welcome);
@@ -227,6 +228,7 @@ MainWindow::MainWindow(VmStore *store, QWidget *parent)
     m_qemuStatus->setObjectName("qemuStatus");
     m_updates = new UpdateNotifier(this);
     connect(m_updates, &UpdateNotifier::buildQemuRequested, this, &MainWindow::buildQemu);
+    statusBar()->addPermanentWidget(m_perf);
     statusBar()->addPermanentWidget(m_updates->button());
     statusBar()->addPermanentWidget(new MemoryMonitor(store, this));
     statusBar()->addPermanentWidget(m_qemuStatus);
@@ -623,6 +625,7 @@ void MainWindow::showCurrent()
 
     m_right->setCurrentIndex(m_list->count() == 0 ? 0 : 1);
     m_pane->setVm(vm);
+    m_perf->setVm(vm);
     m_details->setError(vm ? m_errors.value(vm->id()) : QString());
     updateActions();
 }

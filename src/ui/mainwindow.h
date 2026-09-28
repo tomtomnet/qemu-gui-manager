@@ -9,6 +9,7 @@
 #include "core/vmrunner.h"
 
 class QAction;
+class PerfMonitor;
 class QemuBuildDialog;
 class QLabel;
 class QListWidget;
@@ -76,6 +77,8 @@ private:
     VmDetails *m_details;
     QSplitter *m_splitter;
     QLabel *m_qemuStatus;
+    /* How smoothly the selected VM runs */
+    PerfMonitor *m_perf;
     /* Why the last run of a VM ended with an error, by id */
     QHash<QString, QString> m_errors;
     /* The state of each VM before its latest change */
