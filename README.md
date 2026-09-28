@@ -284,8 +284,8 @@ manager asks QEMU twice a second; the tooltip has the details.
   the guest's answer on screen, over the last 10 seconds; only measured when
   the guest had drawn nothing just before, so it is there after you type or
   click on a quiet desktop, and not while a game or a video plays.
-  These need the SDL display of a qemu-gui QEMU with frame statistics (the
-  `perf-stats` branch, QMP `x-query-display-stats`).
+  These need the SDL display of a current qemu-gui QEMU (QMP
+  `x-query-display-stats`).
 - **main loop wait**: the share of the time QEMU's main loop was ready to run
   but waited for a CPU, from `/proc/PID/task/TID/schedstat`. The main loop
   draws the frames and runs the emulated devices, so when the host is busy
